@@ -1,2 +1,3 @@
 poppler-utils
 libzbar0
+fonts-noto-cjk
