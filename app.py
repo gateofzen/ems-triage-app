@@ -95,15 +95,15 @@ POS_DAY    = (580, 445)
 POS_WDAY   = (720, 445)
 POS_HOUR   = (820, 445)
 POS_MINUTE = (935, 445)
-POS_ORIGIN = (1060, 420)
+POS_ORIGIN = (1055, 500)
 POS_HISTORY_YES  = (1910, 480)
 POS_HISTORY_NO   = (2180, 480)
 POS_HISTORY_DEPT = (1960, 445)
 POS_KANA  = (450, 562)
 POS_KANJI = (450, 598)
-POS_BIRTH_Y = (1560, 582)
-POS_BIRTH_M = (1640, 578)
-POS_BIRTH_D = (1850, 578)
+POS_BIRTH_Y_RIGHT = 1614  # X end position before "年"
+POS_BIRTH_M_RIGHT = 1776
+POS_BIRTH_D_RIGHT = 2199
 POS_AGE = (1475, 680)
 POS_MALE   = (1980, 708)
 POS_FEMALE = (2100, 708)
@@ -120,16 +120,16 @@ POS_FUOUJI = (265, 2360)
 POS_TOCHOKU     = (1167, 2260)
 POS_KYUKYU_INIT = (1356, 2260)
 POS_SONOTA_INIT = (1574, 2260)
-POS_SONOTA_INIT_TEXT = (1700, 2250)
+POS_SONOTA_INIT_TEXT = (1660, 2245)
 POS_NYUIN  = (841, 2390)
 POS_KITAKU = (764, 2450)
 POS_4EAST = (1433, 2440)
 POS_HCU   = (1546, 2440)
 POS_ICU   = (1660, 2440)
-POS_WARD_OTHER_TEXT = (1300, 2500)
+POS_WARD_OTHER_TEXT = (1320, 2485)
 POS_RINKEN      = (1892, 2400)
 POS_KYUKYU_MAIN = (1913, 2445)
-POS_MAIN_OTHER_TEXT = (1900, 2485)
+POS_MAIN_OTHER_TEXT = (1880, 2468)
 FUOUJI_REASON_Y = [2553, 2603, 2653, 2703, 2753, 2803, 2853, 2902]
 FUOUJI_REASON_X = 230
 POS_RECORDER = (1750, 300)
@@ -213,7 +213,7 @@ if uploaded_file:
                     d.text(POS_MINUTE, data["minute"], font=f_m, fill="black")
 
                     # 依頼元
-                    d.text(POS_ORIGIN, origin, font=get_font(26), fill="black")
+                    d.text(POS_ORIGIN, origin, font=get_font(22), fill="black")
 
                     # --- 記載者 ---
                     d.text(POS_RECORDER, recorder, font=f_l, fill="black")
@@ -232,9 +232,16 @@ if uploaded_file:
                     # 生年月日
                     b = data["birth"]
                     if len(b) == 8:
-                        d.text(POS_BIRTH_Y, b[:4], font=get_font(26), fill="black")
-                        d.text(POS_BIRTH_M, b[4:6], font=f_m, fill="black")
-                        d.text(POS_BIRTH_D, b[6:], font=f_m, fill="black")
+                        f_birth = get_font(36)
+                        # 年: right-align before "年" label
+                        bw = f_birth.getbbox(b[:4])
+                        d.text((POS_BIRTH_Y_RIGHT - (bw[2]-bw[0]), 580), b[:4], font=f_birth, fill="black")
+                        # 月: right-align before "月" label
+                        bw = f_birth.getbbox(b[4:6])
+                        d.text((POS_BIRTH_M_RIGHT - (bw[2]-bw[0]), 580), b[4:6], font=f_birth, fill="black")
+                        # 日: right-align before "日" label
+                        bw = f_birth.getbbox(b[6:])
+                        d.text((POS_BIRTH_D_RIGHT - (bw[2]-bw[0]), 580), b[6:], font=f_birth, fill="black")
 
                     # 年齢
                     if data["age"]:
@@ -278,7 +285,8 @@ if uploaded_file:
                         elif res["init"] == "その他":
                             draw_maru(d, POS_SONOTA_INIT, r=50)
                             if res.get("init_other"):
-                                d.text(POS_SONOTA_INIT_TEXT, res["init_other"], font=f_s, fill="black")
+                                name = res["init_other"].rstrip("科")
+                                d.text(POS_SONOTA_INIT_TEXT, name, font=f_s, fill="black")
                         # 最終転帰
                         if res["out"] == "入院":
                             draw_maru(d, POS_NYUIN, r=30)
@@ -294,7 +302,8 @@ if uploaded_file:
                             elif res.get("main") == "救急科":
                                 draw_maru(d, POS_KYUKYU_MAIN, r=35)
                             elif res.get("main") == "その他" and res.get("main_other"):
-                                d.text(POS_MAIN_OTHER_TEXT, res["main_other"], font=f_s, fill="black")
+                                name = res["main_other"].rstrip("科")
+                                d.text(POS_MAIN_OTHER_TEXT, name, font=f_s, fill="black")
                         elif res["out"] == "帰宅":
                             draw_maru(d, POS_KITAKU, r=30)
                     else:
