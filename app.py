@@ -7,13 +7,11 @@ import base64
 from pdf2image import convert_from_path
 from pyzbar.pyzbar import decode
 
-# --- QRデータの解析関数 (デコード修正版) ---
 def parse_ems_qr(b64_string):
     try:
         decoded_bytes = base64.b64decode(b64_string)
         decoded_text = decoded_bytes.decode('utf-8')
         items = decoded_text.split(',')
-        # CSVインデックスに基づきマッピング
         return {
             "name": items[2].replace('　', ' '),
             "gender": items[5],
@@ -30,17 +28,13 @@ def parse_ems_qr(b64_string):
     except:
         return None
 
-st.set_page_config(page_title="市立札幌病院 トリアージ台帳作成", layout="centered")
-st.title("🚑 トリアージ台帳 自動作成システム")
+st.set_page_config(page_title="トリアージ台帳作成システム", layout="centered")
+st.title("🚑 トリアージ台帳 自動作成")
 
-# 1. QRコードのアップロード
 uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=['png', 'jpg', 'jpeg'])
 
-# セッション状態の初期化
 if 'ledger_image' not in st.session_state:
     st.session_state.ledger_image = None
-if 'patient_name' not in st.session_state:
-    st.session_state.patient_name = ""
 
 if uploaded_file:
     img = Image.open(uploaded_file)
@@ -52,68 +46,78 @@ if uploaded_file:
         
         if data:
             st.success(f"読み込み成功: {data['name']} 様")
-            st.session_state.patient_name = data['name']
             
-            # --- フォーム開始 ---
             with st.form("triage_form"):
-                st.subheader("台帳情報の追記")
+                st.subheader("台帳情報の入力")
                 
-                # 基本情報
-                col_info1, col_info2 = st.columns(2)
-                with col_info1:
-                    request_origin = st.text_input("依頼元（救急隊）", value="中央救急隊")
-                with col_info2:
+                # 1. 基本情報・受診歴
+                col1, col2 = st.columns(2)
+                with col1:
+                    req_origin = st.text_input("依頼元（救急隊）", value="中央救急隊")
+                with col2:
                     visit_history = st.radio("受診歴", ["無", "有"], horizontal=True)
+                    visit_dept = ""
+                    if visit_history == "有":
+                        visit_dept = st.text_input("受診科名を入力")
 
                 st.divider()
-                
-                # 判定メイン
+
+                # 2. 判定と詳細
                 decision = st.radio("判定", ["応需", "不応需"], horizontal=True)
                 
-                if decision == "応需":
-                    # 初期対応した科 
-                    initial_dept = st.selectbox("初期対応した科", ["当直医", "救急科", "その他の科"])
-                    other_dept_name = ""
-                    if initial_dept == "その他の科":
-                        other_dept_name = st.text_input("具体的な科名を入力")
+                res_detail = {} # 描画用データ保持
 
-                    # 最終転帰 
-                    final_outcome = st.selectbox("最終転帰", ["入院", "帰宅", "その他"])
-                    ward_name = ""
-                    if final_outcome == "入院":
-                        ward_name = st.selectbox("入院先病棟", ["4東", "HCU", "ICU", "臨研", "救急科", "その他"])
-                
-                else: # 不応需の場合 
-                    reason_cat = st.selectbox("不応需理由を選択", [
-                        "1. 緊急性なし",
-                        "2. ベッド満床 (救急外来・HCU・4東・その他)",
-                        "3. 既定の応需不可症例",
-                        "4. 対応可能な医師不在",
-                        "5. 緊急手術制限中",
-                        "6-A. 医師処置中につき対応困難",
-                        "6-B. 看護師処置中につき対応困難",
-                        "7. その他"
+                if decision == "応需":
+                    # 初期対応した科
+                    init_dept = st.selectbox("初期対応した科", ["当直医", "救急科", "その他"])
+                    init_dept_free = st.text_input("その他の科名") if init_dept == "その他" else ""
+                    
+                    # 最終転帰
+                    outcome = st.selectbox("最終転帰", ["入院", "帰宅", "その他"])
+                    outcome_free = st.text_input("その他の転帰詳細") if outcome == "その他" else ""
+                    
+                    # 入院の場合の追加詳細
+                    ward = ""; ward_free = ""; main_dept = ""; main_dept_free = ""
+                    if outcome == "入院":
+                        col_adm1, col_adm2 = st.columns(2)
+                        with col_adm1:
+                            ward = st.selectbox("病棟", ["4東", "HCU", "ICU", "その他"])
+                            if ward == "その他": ward_free = st.text_input("その他の病棟名")
+                        with col_adm2:
+                            main_dept = st.selectbox("主科", ["臨研", "救急科", "その他"])
+                            if main_dept == "その他": main_dept_free = st.text_input("その他の診療科名")
+                    
+                    res_detail = {
+                        "init": init_dept_free if init_dept == "その他" else init_dept,
+                        "outcome": outcome_free if outcome == "その他" else outcome,
+                        "ward": ward_free if ward == "その他" else ward,
+                        "main": main_dept_free if main_dept == "その他" else main_dept
+                    }
+
+                else: # 不応需
+                    reason_cat = st.selectbox("不応需理由", [
+                        "1. 緊急性なし", "2. ベッド満床", "3. 既定の応需不可症例", 
+                        "4. 対応可能な医師不在", "5. 緊急手術制限中", 
+                        "6-A. 医師処置中につき対応困難", "6-B. 看護師処置中につき対応困難", "7. その他"
                     ])
-                    reason_detail = st.text_input("不応需理由の具体的な詳細 (任意)")
+                    reason_free = st.text_input("不応需理由の具体的な詳細")
+                    res_detail = {"reason": f"{reason_cat} ({reason_free})"}
 
                 free_notes = st.text_area("自由記載欄")
                 
-                submitted = st.form_submit_button("台帳のプレビューを生成")
-
-                if submitted:
-                    # PDFを画像に変換して描画開始
+                if st.form_submit_button("台帳プレビューを生成"):
                     pages = convert_from_path("triage_template.pdf", dpi=300)
                     base_img = pages[0].convert("RGB")
                     draw = ImageDraw.Draw(base_img)
                     
-                    # --- 描画ロジック (座標はPDF  に合わせて要調整) ---
-                    # ヘッダー・基本情報
-                    draw.text((450, 480), request_origin, fill="black") # 依頼元
-                    draw.text((450, 700), data['name'], fill="black") # 氏名
-                    draw.text((1600, 700), f"{data['age']}歳 / {data['gender']}", fill="black")
-                    draw.text((450, 850), data['complaint'], fill="black") # 主訴
+                    # --- 描画 (座標は目安です) ---
+                    draw.text((450, 480), req_origin, fill="black") # 依頼元 
+                    draw.text((1200, 480), f"{visit_history}({visit_dept})", fill="black") # 受診歴 
+                    draw.text((450, 700), data['name'], fill="black") # 氏名 
+                    draw.text((1600, 700), f"{data['age']}歳 / {data['gender']}", fill="black") # 年齢性別 
+                    draw.text((450, 850), data['complaint'], fill="black") # 主訴 
 
-                    # バイタルサイン
+                    # バイタル 
                     v_x = 2300
                     draw.text((v_x, 1220), data['jcs'], fill="black")
                     draw.text((v_x, 1330), data['rr'], fill="black")
@@ -122,29 +126,21 @@ if uploaded_file:
                     draw.text((v_x, 1660), data['spo2'], fill="black")
                     draw.text((v_x, 1770), data['bt'], fill="black")
 
-                    # 判定結果の描画
+                    # 判定・転帰 
                     if decision == "応需":
-                        res_txt = f"【応需】 {initial_dept} / 転帰: {final_outcome} ({ward_name})"
+                        draw.text((400, 2050), f"応需: {res_detail['init']} / 転帰: {res_detail['outcome']}", fill="red")
+                        if res_detail['ward']:
+                            draw.text((1500, 2050), f"病棟: {res_detail['ward']} / 主科: {res_detail['main']}", fill="red")
                     else:
-                        res_txt = f"【不応需】 {reason_cat} / {reason_detail}"
-                    draw.text((400, 2050), res_txt, fill="red")
-                    draw.text((400, 2800), free_notes, fill="black") # 自由記載
-
+                        draw.text((400, 2050), f"不応需: {res_detail['reason']}", fill="red")
+                    
+                    draw.text((400, 2800), free_notes, fill="black")
                     st.session_state.ledger_image = base_img
+                    st.session_state.p_name = data['name']
 
-    else:
-        st.error("QRコードが見つかりませんでした。")
-
-# --- フォームの外に配置 (エラー回避) ---
 if st.session_state.ledger_image:
     st.divider()
-    st.image(st.session_state.ledger_image, caption="生成された台帳プレビュー")
-    
+    st.image(st.session_state.ledger_image)
     buf = io.BytesIO()
     st.session_state.ledger_image.save(buf, format="JPEG")
-    st.download_button(
-        label="台帳（JPEG）をダウンロード",
-        data=buf.getvalue(),
-        file_name=f"triage_{st.session_state.patient_name}.jpg",
-        mime="image/jpeg"
-    )
+    st.download_button("台帳を保存", buf.getvalue(), f"triage_{st.session_state.p_name}.jpg", "image/jpeg")
