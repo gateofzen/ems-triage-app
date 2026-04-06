@@ -51,8 +51,8 @@ def parse_ems_qr(items):
             "bp_d": items[20] if len(items) > 20 else "",
             "hr": items[21] if len(items) > 21 else "",
             "rr": items[22] if len(items) > 22 else "",
-            "spo2": items[23] if len(items) > 23 else "",
-            "bt": items[24] if len(items) > 24 else "",
+            "bt": items[23] if len(items) > 23 else "",
+            "spo2": items[24] if len(items) > 24 else "",
         }
     except Exception as e:
         st.error(f"データ解析失敗: {e}")
@@ -68,13 +68,13 @@ POS_DAY    = (580, 445)
 POS_WDAY   = (720, 445)
 POS_HOUR   = (820, 445)
 POS_MINUTE = (935, 445)
-POS_ORIGIN = (1060, 510)
+POS_ORIGIN = (1080, 520)
 POS_HISTORY_YES  = (1910, 480)
 POS_HISTORY_NO   = (2180, 480)
 POS_HISTORY_DEPT = (1960, 445)
 POS_KANA  = (450, 562)
 POS_KANJI = (450, 598)
-POS_BIRTH_Y = (1575, 580)
+POS_BIRTH_Y = (1535, 582)
 POS_BIRTH_M = (1640, 578)
 POS_BIRTH_D = (1850, 578)
 POS_AGE = (1475, 680)
@@ -87,7 +87,7 @@ HISTORY_LINE_HEIGHT = 55
 HISTORY_WRAP_WIDTH = 28
 VITAL_X = 1845
 JCS_X = 1960
-VITAL_Y = {"jcs":1290,"rr":1390,"hr":1492,"bp":1593,"spo2":1695,"bt":1795}
+VITAL_Y = {"jcs":1278,"rr":1390,"hr":1492,"bp":1593,"spo2":1695,"bt":1795}
 POS_OUJI   = (300, 2260)
 POS_FUOUJI = (265, 2360)
 POS_TOCHOKU     = (1167, 2260)
@@ -101,6 +101,7 @@ POS_RINKEN      = (1892, 2400)
 POS_KYUKYU_MAIN = (1913, 2445)
 FUOUJI_REASON_Y = [2553, 2603, 2653, 2703, 2753, 2803, 2853, 2902]
 FUOUJI_REASON_X = 230
+POS_RECORDER = (1700, 290)
 
 # === メイン ===
 st.set_page_config(page_title="台帳作成システム", layout="centered")
@@ -137,6 +138,7 @@ if uploaded_file:
                     st.text(f"[{i:2d}] {v[:80]}{lbl}")
 
             st.subheader("台帳情報の入力")
+            recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
             col1, col2 = st.columns(2)
             with col1:
                 origin = st.text_input("依頼元（救急隊）", value="中央").replace("救急隊","").strip()
@@ -144,6 +146,7 @@ if uploaded_file:
             with col2:
                 history_dept = st.text_input("受診科名（有の場合）")
                 decision = st.radio("判定", ["応需","不応需"], index=0, horizontal=True)
+            complaint_edit = st.text_input("主訴（編集可）", value=data.get("complaint", ""))
 
             res = {}
             if decision == "応需":
@@ -177,9 +180,12 @@ if uploaded_file:
                     d.text(POS_MINUTE, data["minute"], font=f_m, fill="black")
 
                     # 依頼元
-                    of = f_sm if len(origin) > 3 else f_m
+                    f_xs = get_font(28)
+                    of = f_xs if len(origin) > 3 else f_sm
                     d.text(POS_ORIGIN, origin, font=of, fill="black")
 
+                    # --- 記載者 ---
+                    d.text(POS_RECORDER, recorder, font=f_m, fill="black")
                     # 受診歴
                     if history_yn == "有":
                         draw_maru(d, POS_HISTORY_YES)
@@ -195,7 +201,7 @@ if uploaded_file:
                     # 生年月日
                     b = data["birth"]
                     if len(b) == 8:
-                        d.text(POS_BIRTH_Y, b[:4], font=f_sm, fill="black")
+                        d.text(POS_BIRTH_Y, b[:4], font=get_font(30), fill="black")
                         d.text(POS_BIRTH_M, b[4:6], font=f_m, fill="black")
                         d.text(POS_BIRTH_D, b[6:], font=f_m, fill="black")
 
@@ -210,8 +216,8 @@ if uploaded_file:
                         draw_maru(d, POS_MALE, r=35)
 
                     # 主訴（枠内改行）
-                    if data["complaint"]:
-                        for i, line in enumerate(textwrap.wrap(data["complaint"], width=COMPLAINT_WRAP_WIDTH)):
+                    if complaint_edit:
+                        for i, line in enumerate(textwrap.wrap(complaint_edit, width=COMPLAINT_WRAP_WIDTH)):
                             d.text((POS_COMPLAINT[0], POS_COMPLAINT[1]+i*55), line, font=f_m, fill="black")
 
                     # 経過等（自動改行、枠内制限）
