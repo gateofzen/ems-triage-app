@@ -68,34 +68,35 @@ POS_DAY    = (580, 445)
 POS_WDAY   = (720, 445)
 POS_HOUR   = (820, 445)
 POS_MINUTE = (935, 445)
-POS_ORIGIN = (1060, 500)
+POS_ORIGIN = (1060, 510)
 POS_HISTORY_YES  = (1910, 480)
 POS_HISTORY_NO   = (2180, 480)
 POS_HISTORY_DEPT = (1960, 445)
-POS_KANA  = (415, 562)
-POS_KANJI = (415, 598)
-POS_BIRTH_Y = (1525, 580)
+POS_KANA  = (450, 562)
+POS_KANJI = (450, 598)
+POS_BIRTH_Y = (1575, 580)
 POS_BIRTH_M = (1640, 578)
 POS_BIRTH_D = (1850, 578)
 POS_AGE = (1475, 680)
 POS_MALE   = (1980, 708)
 POS_FEMALE = (2100, 708)
-POS_COMPLAINT = (230, 790)
+POS_COMPLAINT = (420, 830)
 COMPLAINT_WRAP_WIDTH = 45
-POS_HISTORY_TEXT = (230, 1050)
+POS_HISTORY_TEXT = (420, 1000)
 HISTORY_LINE_HEIGHT = 55
-HISTORY_WRAP_WIDTH = 32
+HISTORY_WRAP_WIDTH = 28
 VITAL_X = 1845
+JCS_X = 1960
 VITAL_Y = {"jcs":1290,"rr":1390,"hr":1492,"bp":1593,"spo2":1695,"bt":1795}
-POS_OUJI   = (265, 2260)
+POS_OUJI   = (300, 2260)
 POS_FUOUJI = (265, 2360)
 POS_TOCHOKU     = (1167, 2260)
 POS_KYUKYU_INIT = (1575, 2260)
-POS_NYUIN  = (841, 2405)
+POS_NYUIN  = (841, 2390)
 POS_KITAKU = (764, 2450)
-POS_4EAST = (1433, 2455)
-POS_HCU   = (1546, 2455)
-POS_ICU   = (1660, 2455)
+POS_4EAST = (1433, 2440)
+POS_HCU   = (1546, 2440)
+POS_ICU   = (1660, 2440)
 POS_RINKEN      = (1892, 2400)
 POS_KYUKYU_MAIN = (1913, 2445)
 FUOUJI_REASON_Y = [2553, 2603, 2653, 2703, 2753, 2803, 2853, 2902]
@@ -221,7 +222,9 @@ if uploaded_file:
                             d.text((POS_HISTORY_TEXT[0], y), line, font=f_m, fill="black")
 
                     # バイタルサイン
-                    for key, field in [("jcs","jcs"),("rr","rr"),("hr","hr"),("spo2","spo2"),("bt","bt")]:
+                    if data["jcs"]:
+                        d.text((JCS_X, VITAL_Y["jcs"]), data["jcs"], font=f_m, fill="black")
+                    for key, field in [("rr","rr"),("hr","hr"),("spo2","spo2"),("bt","bt")]:
                         if data[field]:
                             d.text((VITAL_X, VITAL_Y[key]), data[field], font=f_m, fill="black")
                     if data["bp_s"] and data["bp_d"]:
