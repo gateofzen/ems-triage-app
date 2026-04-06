@@ -33,6 +33,33 @@ def parse_ems_qr(items):
         kanji, kana = (
             name_raw.split("θ", 1) if "θ" in name_raw else (name_raw, "")
         )
+        # 主訴と経過等の抽出
+        # QRデータでは主訴[9]に長文が入ることがある
+        # 短いテキスト（20文字以下）があれば主訴、長文は経過等として扱う
+        field_8 = items[8].strip() if len(items) > 8 else ""
+        field_9 = items[9].strip() if len(items) > 9 else ""
+        field_10 = items[10].strip() if len(items) > 10 else ""
+        field_11 = items[11].strip() if len(items) > 11 else ""
+
+        # 主訴候補: 短いフィールドを探す
+        complaint = ""
+        history = ""
+        for f in [field_8, field_10, field_11]:
+            if f and len(f) <= 30 and not f.isdigit():
+                complaint = f
+                break
+        # 経過等: 最も長いテキストフィールドを使用
+        history = field_9 if len(field_9) > len(field_8) else field_8
+        # 主訴が見つからない場合、経過等の冒頭から抽出を試みる
+        if not complaint and history:
+            # 最初の句点または読点までを主訴とする
+            for sep in ["。", "、"]:
+                if sep in history:
+                    candidate = history[:history.index(sep)]
+                    if len(candidate) <= 30:
+                        complaint = candidate
+                        break
+
         return {
             "month": str(dt.month),
             "day": str(dt.day),
@@ -42,8 +69,8 @@ def parse_ems_qr(items):
             "kanji": kanji.strip().replace("　", " "),
             "kana": kana.strip().replace("　", " "),
             "gender": items[5],
-            "complaint": items[8].strip(),
-            "history": items[9].strip(),
+            "complaint": complaint,
+            "history": history,
             "birth": items[13],
             "age": items[14] if len(items) > 14 else "",
             "jcs": items[15] if len(items) > 15 else "",
@@ -68,13 +95,13 @@ POS_DAY    = (580, 445)
 POS_WDAY   = (720, 445)
 POS_HOUR   = (820, 445)
 POS_MINUTE = (935, 445)
-POS_ORIGIN = (1080, 520)
+POS_ORIGIN = (1060, 510)
 POS_HISTORY_YES  = (1910, 480)
 POS_HISTORY_NO   = (2180, 480)
 POS_HISTORY_DEPT = (1960, 445)
 POS_KANA  = (450, 562)
 POS_KANJI = (450, 598)
-POS_BIRTH_Y = (1535, 582)
+POS_BIRTH_Y = (1545, 582)
 POS_BIRTH_M = (1640, 578)
 POS_BIRTH_D = (1850, 578)
 POS_AGE = (1475, 680)
@@ -91,7 +118,7 @@ VITAL_Y = {"jcs":1278,"rr":1390,"hr":1492,"bp":1593,"spo2":1695,"bt":1795}
 POS_OUJI   = (300, 2260)
 POS_FUOUJI = (265, 2360)
 POS_TOCHOKU     = (1167, 2260)
-POS_KYUKYU_INIT = (1575, 2260)
+POS_KYUKYU_INIT = (1356, 2260)
 POS_NYUIN  = (841, 2390)
 POS_KITAKU = (764, 2450)
 POS_4EAST = (1433, 2440)
@@ -101,7 +128,7 @@ POS_RINKEN      = (1892, 2400)
 POS_KYUKYU_MAIN = (1913, 2445)
 FUOUJI_REASON_Y = [2553, 2603, 2653, 2703, 2753, 2803, 2853, 2902]
 FUOUJI_REASON_X = 230
-POS_RECORDER = (1700, 290)
+POS_RECORDER = (1750, 300)
 
 # === メイン ===
 st.set_page_config(page_title="台帳作成システム", layout="centered")
@@ -180,12 +207,10 @@ if uploaded_file:
                     d.text(POS_MINUTE, data["minute"], font=f_m, fill="black")
 
                     # 依頼元
-                    f_xs = get_font(28)
-                    of = f_xs if len(origin) > 3 else f_sm
-                    d.text(POS_ORIGIN, origin, font=of, fill="black")
+                    d.text(POS_ORIGIN, origin, font=f_s, fill="black")
 
                     # --- 記載者 ---
-                    d.text(POS_RECORDER, recorder, font=f_m, fill="black")
+                    d.text(POS_RECORDER, recorder, font=f_l, fill="black")
                     # 受診歴
                     if history_yn == "有":
                         draw_maru(d, POS_HISTORY_YES)
@@ -201,7 +226,7 @@ if uploaded_file:
                     # 生年月日
                     b = data["birth"]
                     if len(b) == 8:
-                        d.text(POS_BIRTH_Y, b[:4], font=get_font(30), fill="black")
+                        d.text(POS_BIRTH_Y, b[:4], font=get_font(28), fill="black")
                         d.text(POS_BIRTH_M, b[4:6], font=f_m, fill="black")
                         d.text(POS_BIRTH_D, b[6:], font=f_m, fill="black")
 
