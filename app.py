@@ -6,18 +6,30 @@ import io
 import base64
 from pdf2image import convert_from_path
 from pyzbar.pyzbar import decode
+import os
 
-# --- QRデータの正確なマッピング ---
+# --- 日本語フォントの設定 ---
+def get_font(size):
+    # Streamlit Cloud (Linux) の標準的な日本語フォントパス
+    paths = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/fonts-japanese-gothic.ttf"
+    ]
+    for path in paths:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
+
 def parse_ems_qr(b64_string):
     try:
         decoded_bytes = base64.b64decode(b64_string)
         decoded_text = decoded_bytes.decode('utf-8')
         items = decoded_text.split(',')
-        # 解析データに基づきインデックスを厳密に指定
+        # インデックス修正: 4=氏名, 11=年齢, 8=主訴 
         return {
-            "name": items[4].split('ナガイ')[0].strip(), # 氏名のみ抽出
-            "kana": "ナガイ シオリ", # 必要に応じて調整
-            "gender": items[5], # 2 = 女性
+            "name": items[4].split('　')[0].strip(), # 姓名のみ
+            "gender": items[5], # 2=女, 1=男
             "complaint": items[8],
             "age": items[11],
             "jcs": items[12],
@@ -31,103 +43,81 @@ def parse_ems_qr(b64_string):
     except:
         return None
 
-# --- ◯（まる）を描画するヘルパー関数 ---
-def draw_circle(draw, center_xy, radius=45):
-    x, y = center_xy
-    draw.ellipse((x-radius, y-radius, x+radius, y+radius), outline="red", width=8)
+def draw_maru(draw, center, radius=45):
+    """指定座標に赤い◯を描画"""
+    x, y = center
+    draw.ellipse((x-radius, y-radius, x+radius, y+radius), outline="red", width=10)
 
-st.title("🚑 市立札幌病院 トリアージ台帳 作成")
+st.set_page_config(page_title="市立札幌病院 転記システム")
+st.title("🚑 トリアージ台帳作成（最終修正版）")
 
-uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=['png', 'jpg', 'jpeg'])
+uploaded_file = st.file_uploader("QRコードのスクリーンショット", type=['png', 'jpg', 'jpeg'])
 
-if 'ledger' not in st.session_state:
-    st.session_state.ledger = None
+if 'output' not in st.session_state:
+    st.session_state.output = None
 
 if uploaded_file:
     img = Image.open(uploaded_file)
     decoded = decode(img)
 
     if decoded:
-        raw_val = decoded[0].data.decode('utf-8')
-        data = parse_ems_qr(raw_val)
-        
+        data = parse_ems_qr(decoded[0].data.decode('utf-8'))
         if data:
-            st.success(f"読み込み成功: {data['name']} 様")
+            st.success(f"解析成功: {data['name']} 様")
             
-            with st.form("detail_form"):
-                col_h1, col_h2 = st.columns(2)
-                with col_h1:
-                    origin = st.text_input("依頼元（救急隊）", value="中央救急隊")
-                with col_h2:
+            with st.form("ledger_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    origin = st.text_input("依頼元", value="中央救急隊")
                     history = st.radio("受診歴", ["無", "有"], horizontal=True)
-                    history_dept = st.text_input("受診科（有の場合）")
-
-                st.divider()
-                decision = st.radio("判定", ["応需", "不応需"], horizontal=True)
-                
-                # 詳細入力（応需・不応需に応じた条件分岐）
-                if decision == "応需":
-                    init_dept = st.selectbox("初期対応した科", ["当直医", "救急科", "その他"])
+                with col2:
+                    decision = st.radio("判定", ["応需", "不応需"], horizontal=True)
                     outcome = st.selectbox("最終転帰", ["入院", "帰宅", "その他"])
-                    if outcome == "入院":
-                        col_adm1, col_adm2 = st.columns(2)
-                        with col_adm1:
-                            ward = st.selectbox("病棟", ["4東", "HCU", "ICU", "その他"])
-                        with col_adm2:
-                            main_dept = st.selectbox("主科", ["臨研", "救急科", "その他"])
-                else:
-                    reason_no = st.selectbox("不応需理由", ["1", "2", "3", "4", "5", "6-A", "6-B", "7"])
-                    reason_txt = st.text_input("具体的な理由")
 
                 if st.form_submit_button("台帳を生成"):
+                    # PDFを300dpiで画像化
                     pages = convert_from_path("triage_template.pdf", dpi=300)
                     base = pages[0].convert("RGB")
                     draw = ImageDraw.Draw(base)
+                    font_m = get_font(50)  # 中サイズ
+                    font_l = get_font(70)  # 大サイズ
+
+                    # --- 文字入力 (座標をPDFの枠に最適化) ---
+                    draw.text((1100, 380), origin, font=font_m, fill="black")
+                    draw.text((350, 480), data['name'], font=font_l, fill="black")
+                    draw.text((1350, 520), data['age'], font=font_m, fill="black")
+                    draw.text((250, 680), data['complaint'], font=font_m, fill="black")
+
+                    # バイタルサイン
+                    v_x = 2200
+                    draw.text((v_x, 1080), data['jcs'], font=font_m, fill="black")
+                    draw.text((v_x, 1200), data['rr'], font=font_m, fill="black")
+                    draw.text((v_x, 1310), data['pr'], font=font_m, fill="black")
+                    draw.text((v_x, 1430), f"{data['bp_s']}/{data['bp_d']}", font=font_m, fill="black")
+                    draw.text((v_x, 1550), data['spo2'], font=font_m, fill="black")
+                    draw.text((v_x, 1680), data['bt'], font=font_m, fill="black")
+
+                    # --- ◯（赤丸）の記入 ---
+                    # 受診歴
+                    if history == "無": draw_maru(draw, (2060, 145))
+                    else: draw_maru(draw, (1810, 145))
                     
-                    # --- 1. 基本情報 ---
-                    draw.text((450, 485), origin, fill="black") # 依頼元
-                    if history == "有":
-                        draw_circle(draw, (2085, 140)) # 受診歴「有」
-                        draw.text((2150, 140), history_dept, fill="black")
-                    else:
-                        draw_circle(draw, (2340, 140)) # 受診歴「無」
+                    # 性別
+                    if data['gender'] == "2": draw_maru(draw, (2090, 195)) # 女
+                    else: draw_maru(draw, (1890, 195)) # 男
 
-                    draw.text((450, 685), data['name'], fill="black") # 氏名
-                    draw.text((1600, 685), data['age'], fill="black") # 年齢
-                    if data['gender'] == "2": draw_circle(draw, (2225, 195)) # 性別「女」
+                    # 判定
+                    if decision == "応需": draw_maru(draw, (130, 650))
+                    else: draw_maru(draw, (130, 680))
 
-                    # --- 2. バイタル ---
-                    v_x = 2320
-                    draw.text((v_x, 1215), data['jcs'], fill="black")
-                    draw.text((v_x, 1325), data['rr'], fill="black")
-                    draw.text((v_x, 1435), data['pr'], fill="black")
-                    draw.text((v_x, 1545), f"{data['bp_s']}/{data['bp_d']}", fill="black")
-                    draw.text((v_x, 1655), data['spo2'], fill="black")
-                    draw.text((v_x, 1765), data['bt'], fill="black")
+                    # 最終転帰
+                    if outcome == "入院": draw_maru(draw, (830, 675), radius=35)
+                    elif outcome == "帰宅": draw_maru(draw, (830, 700), radius=35)
 
-                    # --- 3. 判定・転帰（◯の描画） ---
-                    if decision == "応需":
-                        draw_circle(draw, (140, 650)) # 応需文字
-                        if init_dept == "当直医": draw_circle(draw, (1330, 645))
-                        elif init_dept == "救急科": draw_circle(draw, (1680, 645))
-                        
-                        if outcome == "入院": draw_circle(draw, (830, 675))
-                        elif outcome == "帰宅": draw_circle(draw, (830, 695))
+                    st.session_state.output = base
 
-                        if outcome == "入院":
-                            if ward == "4東": draw_circle(draw, (1630, 690))
-                            elif ward == "HCU": draw_circle(draw, (1850, 690))
-                            if main_dept == "臨研": draw_circle(draw, (2300, 680))
-                    else:
-                        draw_circle(draw, (140, 675)) # 不応需文字
-                        # 理由番号の◯（番号に応じた座標）
-                        reason_map = {"1":(140,735), "2":(140,760), "3":(140,785)} # 例
-                        if reason_no in reason_map: draw_circle(draw, reason_map[reason_no], radius=30)
-
-                    st.session_state.ledger = base
-
-if st.session_state.ledger:
-    st.image(st.session_state.ledger)
+if st.session_state.output:
+    st.image(st.session_state.output)
     buf = io.BytesIO()
-    st.session_state.ledger.save(buf, format="JPEG")
-    st.download_button("台帳保存", buf.getvalue(), "triage_result.jpg", "image/jpeg")
+    st.session_state.output.save(buf, format="JPEG", quality=95)
+    st.download_button("台帳を保存", buf.getvalue(), "triage_complete.jpg", "image/jpeg")
