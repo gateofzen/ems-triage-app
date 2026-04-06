@@ -120,13 +120,13 @@ POS_FUOUJI = (265, 2360)
 POS_TOCHOKU     = (1167, 2260)
 POS_KYUKYU_INIT = (1356, 2260)
 POS_SONOTA_INIT = (1574, 2260)
-POS_SONOTA_INIT_TEXT = (1650, 2240)
+POS_SONOTA_INIT_TEXT = (1720, 2235)
 POS_NYUIN  = (841, 2390)
 POS_KITAKU = (764, 2450)
 POS_4EAST = (1433, 2440)
 POS_HCU   = (1546, 2440)
 POS_ICU   = (1660, 2440)
-POS_WARD_OTHER_TEXT = (1400, 2465)
+POS_WARD_OTHER_TEXT = (1380, 2470)
 POS_RINKEN      = (1892, 2400)
 POS_KYUKYU_MAIN = (1913, 2445)
 POS_MAIN_OTHER_TEXT = (1890, 2490)
@@ -212,8 +212,15 @@ if uploaded_file:
                     d.text(POS_HOUR, data["hour"], font=f_m, fill="black")
                     d.text(POS_MINUTE, data["minute"], font=f_m, fill="black")
 
-                    # 依頼元
-                    d.text(POS_ORIGIN, origin, font=get_font(22), fill="black")
+                    # 依頼元（白塗り→一括再描画）
+                    d.rectangle([(1050, 460), (1250, 545)], fill="white")
+                    origin_text = origin + "救急隊"
+                    f_origin = get_font(24)
+                    bw = f_origin.getbbox(origin_text)
+                    origin_w = bw[2] - bw[0]
+                    origin_x = 1047 + (209 - origin_w) // 2  # セル内中央
+                    d.text((origin_x, 500), origin_text, font=f_origin, fill="black")
+                    d.text((1065, 460), "依頼元", font=get_font(28), fill="black")
 
                     # --- 記載者 ---
                     d.text(POS_RECORDER, recorder, font=f_l, fill="black")
