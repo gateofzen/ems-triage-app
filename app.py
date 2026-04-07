@@ -73,7 +73,7 @@ def draw_maru(draw, xy, r=40):
     draw.ellipse((x-r,y-r,x+r,y+r), outline="red", width=10)
 
 st.set_page_config(page_title="台帳作成システム", layout="centered")
-st.title("🚑 トリアージ台帳 v18")
+st.title("🚑 トリアージ台帳 v18b")
 
 uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=["png","jpg","jpeg"])
 
@@ -137,6 +137,10 @@ if uploaded_file:
                     pages = convert_from_path("トリアージ台帳.pdf", dpi=300)
                     base = pages[0].convert("RGB")
                     d = ImageDraw.Draw(base)
+
+                    # デバッグ: 画像サイズ確認
+                    st.warning(f"v18 画像サイズ: {base.size}")
+
                     f_s = get_font(30)
                     f_m = get_font(42)
                     f_l = get_font(68)
@@ -207,6 +211,11 @@ if uploaded_file:
                         d.text((day_x, 585), day_str, font=f_bd, fill="black")
 
                         st.info(f"v18 座標: year=({year_x},585) w={yw}, month=({month_x},585) w={mw}, day=({day_x},585) w={dw}")
+
+                        # デバッグ: 各テキスト位置に赤い十字マーカーを描画
+                        for mx, label in [(year_x, "Y"), (month_x, "M"), (day_x, "D")]:
+                            d.line([(mx, 570), (mx, 600)], fill="red", width=3)
+                            d.line([(mx-10, 585), (mx+10, 585)], fill="red", width=3)
 
                     # ========== 年齢 ==========
                     if data["age"]:
