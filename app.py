@@ -178,13 +178,15 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     d.text((kx, 268), data["kanji"], font=f44, fill="black")
 
     # ===== 生年月日（右寄せ, Y=315 = 289-356行の中央） =====
-    for val, label_x in [(data["birth_y"], 1010), (data["birth_m"], 1145), (data["birth_d"], 1279)]:
+    # label_x = 各ラベル（年/月/日）の左端X座標
+    # 年: label_x=880 (テンプレートの"歳"が~X970にあるため左にオフセット)
+    for val, label_x in [(data["birth_y"], 880), (data["birth_m"], 1145), (data["birth_d"], 1279)]:
         if val:
             tw = getlength(val, f24)
             d.text((label_x - tw - 4, 315), val, font=f24, fill="black")
 
-    # ===== 年齢（X=710: 年齢ラベルと歳の間） =====
-    d.text((710, 315), data["age"], font=f28, fill="black")
+    # ===== 年齢（X=760: 年齢ラベル後の空白部分） =====
+    d.text((760, 315), data["age"], font=f28, fill="black")
 
     # ===== 性別 =====
     if data["gender"] == "1":
@@ -254,7 +256,7 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
         if res.get("ward") in ward_map:
             draw_maru(d, ward_map[res["ward"]], r=18)
         elif res.get("ward") == "その他" and res.get("ward_other"):
-            d.text((940, 1465), res["ward_other"], font=f18, fill="black")
+            d.text((840, 1480), res["ward_other"], font=f18, fill="black")
 
         # 主科
         main_map = {"臨研": (1083, 1445), "救急科": (1095, 1480)}
