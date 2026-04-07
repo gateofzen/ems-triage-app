@@ -214,7 +214,7 @@ if uploaded_file:
                     d.text(POS_MINUTE, data["minute"], font=f_m, fill="black")
 
                     # 依頼元（セル X=1256-1624 内、「救急隊」の左に記入）
-                    d.text(POS_ORIGIN, origin, font=get_font(36), fill="black")
+                    d.text(POS_ORIGIN, origin, font=get_font(42), fill="black")
 
                     # --- 記載者 ---
                     d.text(POS_RECORDER, recorder, font=f_l, fill="black")
@@ -230,13 +230,13 @@ if uploaded_file:
                     d.text(POS_KANA, data["kana"], font=f_s, fill="black")
                     d.text(POS_KANJI, data["kanji"], font=f_l, fill="black")
 
-                    # 生年月日（年・月・日ラベルの直前に配置）
+                    # 生年月日（各ラベル直前に右寄せ配置）
                     b = data["birth"]
                     if len(b) == 8:
                         f_birth = get_font(36)
-                        d.text(POS_BIRTH_YEAR,  b[:4],  font=f_birth, fill="black")
-                        d.text(POS_BIRTH_MONTH, b[4:6], font=f_birth, fill="black")
-                        d.text(POS_BIRTH_DAY,   b[6:],  font=f_birth, fill="black")
+                        d.text((1615, 585), b[:4],  font=f_birth, fill="black", anchor="rt")
+                        d.text((1778, 585), b[4:6], font=f_birth, fill="black", anchor="rt")
+                        d.text((2200, 585), b[6:],  font=f_birth, fill="black", anchor="rt")
 
                     # 年齢
                     if data["age"]:
