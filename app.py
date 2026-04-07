@@ -177,16 +177,20 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     d.text((kx, 245), data["kana"], font=f18, fill="black")
     d.text((kx, 268), data["kanji"], font=f44, fill="black")
 
-    # ===== 生年月日・年齢（固定座標） =====
-    # テンプレート構造(Y=289-356行): 年齢(X≈543-620) [年齢値] 歳(X≈870) [誕生年] 年(X≈1010) [誕生月] 月(X≈1145) 男・女 [誕生日]
+    f30 = get_font(30)
+
+    # ===== 生年月日（上段行 Y=222-289, Y=242） =====
+    # ズームテスト確認済み: 「年」label_x=1018, 「月」label_x=1152, 「日」label_x=1284
+    for val, label_x in [(data["birth_y"], 1018), (data["birth_m"], 1152), (data["birth_d"], 1284)]:
+        if val:
+            tw_val = getlength(val, f30)
+            d.text((label_x - tw_val - 4, 242), val, font=f30, fill="black")
+
+    # ===== 年齢（下段行 Y=289-356）=====
+    # ズームテスト確認: 「歳」はX=999-1020 → 年の数字（X≈961）と同じ位置に来るよう右寄せ
     if data["age"]:
-        d.text((800, 310), data["age"], font=f28, fill="black")
-    if data["birth_y"]:
-        d.text((925, 312), data["birth_y"], font=f24, fill="black")
-    if data["birth_m"]:
-        d.text((1063, 312), data["birth_m"], font=f24, fill="black")
-    if data["birth_d"]:
-        d.text((1195, 312), data["birth_d"], font=f24, fill="black")
+        age_tw = getlength(data["age"], f30)
+        d.text((999 - age_tw - 4, 305), data["age"], font=f30, fill="black")
 
     # ===== 性別 =====
     if data["gender"] == "1":
