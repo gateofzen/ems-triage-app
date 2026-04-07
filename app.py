@@ -169,18 +169,18 @@ if uploaded_file:
 
                     # ===== 年齢 =====
                     if data["age"]:
-                        d.text((810, 308), data["age"], font=f28, fill="black")
+                        d.text((690, 308), data["age"], font=f28, fill="black")
 
                     # ===== 性別 =====
                     if data["gender"] == "2" or "女" in data["gender"]:
-                        draw_maru(d, (1105, 320), r=18)
+                        draw_maru(d, (1214, 322), r=18)
                     else:
-                        draw_maru(d, (1010, 320), r=18)
+                        draw_maru(d, (1008, 322), r=18)
 
                     # ===== 主訴 =====
                     if complaint_edit:
-                        for i, line in enumerate(textwrap.wrap(complaint_edit, width=38)):
-                            d.text((150, 385+i*30), line, font=f24, fill="black")
+                        for i, line in enumerate(textwrap.wrap(complaint_edit, width=30)):
+                            d.text((150, 385+i*32), line, font=f28, fill="black")
 
                     # ===== 経過等（大きいフォント）=====
                     if data["history"]:
@@ -192,7 +192,7 @@ if uploaded_file:
                     # ===== バイタルサイン =====
                     vx = 1060
                     if data["jcs"]:
-                        d.text((1115, 720), data["jcs"], font=f28, fill="black")
+                        d.text((1120, 705), data["jcs"], font=f28, fill="black")
                     if data["rr"]:
                         d.text((vx, 775), data["rr"], font=f28, fill="black")
                     if data["hr"]:
@@ -216,14 +216,14 @@ if uploaded_file:
                             if res.get("init_other"):
                                 d.text((920, 1332), res["init_other"].rstrip("科"), font=f18, fill="black")
                         if res["out"] == "入院":
-                            draw_maru(d, (340, 1437), r=16)
+                            draw_maru(d, (400, 1435), r=16)
                             wp = {"4東":(784,1466),"HCU":(861,1466),"ICU":(943,1466)}
                             if res.get("ward") in wp:
                                 draw_maru(d, wp[res["ward"]], r=18)
                             elif res.get("ward") == "その他" and res.get("ward_other"):
                                 d.text((770, 1505), res["ward_other"], font=f18, fill="black")
                             if res.get("main") == "臨研":
-                                draw_maru(d, (1081, 1455), r=18)
+                                draw_maru(d, (1083, 1445), r=18)
                             elif res.get("main") == "救急科":
                                 draw_maru(d, (1095, 1480), r=18)
                             elif res.get("main") == "その他" and res.get("main_other"):
