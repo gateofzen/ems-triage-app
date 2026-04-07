@@ -95,15 +95,16 @@ POS_DAY    = (580, 445)
 POS_WDAY   = (720, 445)
 POS_HOUR   = (820, 445)
 POS_MINUTE = (935, 445)
-POS_ORIGIN = (1060, 490)
+POS_ORIGIN = (1270, 495)  # 救急隊セル内、救急隊の左
 POS_HISTORY_YES  = (1910, 480)
 POS_HISTORY_NO   = (2180, 480)
 POS_HISTORY_DEPT = (1960, 445)
 POS_KANA  = (450, 562)
 POS_KANJI = (450, 598)
-POS_BIRTH_Y_RIGHT = 1614  # X end position before "年"
-POS_BIRTH_M_RIGHT = 1776
-POS_BIRTH_D_RIGHT = 2199
+# 生年月日: 固定X座標（各ラベルの直前）
+POS_BIRTH_YEAR  = (1555, 585)
+POS_BIRTH_MONTH = (1730, 585)
+POS_BIRTH_DAY   = (2120, 585)
 POS_AGE = (1475, 680)
 POS_MALE   = (1980, 708)
 POS_FEMALE = (2100, 708)
@@ -126,10 +127,10 @@ POS_KITAKU = (764, 2450)
 POS_4EAST = (1433, 2440)
 POS_HCU   = (1546, 2440)
 POS_ICU   = (1660, 2440)
-POS_WARD_OTHER_TEXT = (1380, 2470)
+POS_WARD_OTHER_TEXT = (1420, 2460)
 POS_RINKEN      = (1892, 2400)
 POS_KYUKYU_MAIN = (1913, 2445)
-POS_MAIN_OTHER_TEXT = (1890, 2490)
+POS_MAIN_OTHER_TEXT = (1890, 2475)
 FUOUJI_REASON_Y = [2553, 2603, 2653, 2703, 2753, 2803, 2853, 2902]
 FUOUJI_REASON_X = 230
 POS_RECORDER = (1750, 300)
@@ -213,7 +214,7 @@ if uploaded_file:
                     d.text(POS_MINUTE, data["minute"], font=f_m, fill="black")
 
                     # 依頼元（セル X=1256-1624 内、「救急隊」の左に記入）
-                    d.text((1300, 490), origin, font=f_s, fill="black")
+                    d.text(POS_ORIGIN, origin, font=get_font(36), fill="black")
 
                     # --- 記載者 ---
                     d.text(POS_RECORDER, recorder, font=f_l, fill="black")
@@ -229,13 +230,13 @@ if uploaded_file:
                     d.text(POS_KANA, data["kana"], font=f_s, fill="black")
                     d.text(POS_KANJI, data["kanji"], font=f_l, fill="black")
 
-                    # 生年月日（各ラベルの左に配置）
+                    # 生年月日（年・月・日ラベルの直前に配置）
                     b = data["birth"]
                     if len(b) == 8:
-                        f_birth = get_font(30)
-                        d.text((1530, 590), b[:4], font=f_birth, fill="black")  # 年号
-                        d.text((1700, 590), b[4:6], font=f_birth, fill="black") # 月
-                        d.text((2130, 590), b[6:], font=f_birth, fill="black")  # 日
+                        f_birth = get_font(36)
+                        d.text(POS_BIRTH_YEAR,  b[:4],  font=f_birth, fill="black")
+                        d.text(POS_BIRTH_MONTH, b[4:6], font=f_birth, fill="black")
+                        d.text(POS_BIRTH_DAY,   b[6:],  font=f_birth, fill="black")
 
                     # 年齢
                     if data["age"]:
