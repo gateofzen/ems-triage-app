@@ -177,16 +177,15 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     d.text((kx, 245), data["kana"], font=f18, fill="black")
     d.text((kx, 268), data["kanji"], font=f44, fill="black")
 
-    # ===== 生年月日（右寄せ, Y=315 = 289-356行の中央） =====
-    # label_x = 各ラベル（年/月/日）の左端X座標
-    # 年: label_x=880 (テンプレートの"歳"が~X970にあるため左にオフセット)
-    for val, label_x in [(data["birth_y"], 880), (data["birth_m"], 1145), (data["birth_d"], 1279)]:
+    # ===== 生年月日（右寄せ） =====
+    # 年ラベルX=1038（911-1043列）、月ラベルX=1145、日ラベルX=1279
+    for val, label_x in [(data["birth_y"], 1038), (data["birth_m"], 1145), (data["birth_d"], 1279)]:
         if val:
             tw = getlength(val, f24)
             d.text((label_x - tw - 4, 315), val, font=f24, fill="black")
 
-    # ===== 年齢（X=760: 年齢ラベル後の空白部分） =====
-    d.text((760, 315), data["age"], font=f28, fill="black")
+    # ===== 年齢（年齢ラベル(~X755)の右, 歳ラベル(~X870)の前） =====
+    d.text((800, 315), data["age"], font=f28, fill="black")
 
     # ===== 性別 =====
     if data["gender"] == "1":
