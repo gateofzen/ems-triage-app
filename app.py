@@ -272,6 +272,7 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
                 d.text((1095, 1500), res["main_other"].rstrip("科"), font=f18, fill="black")
     else:
         # 不応需理由
+        # テンプレート画像解析済みY座標（各行テキスト中央）
         reason_labels = [
             "1. 緊急性なし",
             "2. ベッド満床",
@@ -282,11 +283,34 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
             "6-B. 看護師処置中",
             "7. その他",
         ]
-        reason_y = [1543, 1573, 1603, 1633, 1663, 1693, 1725, 1785]
+        reason_y = [1537, 1570, 1604, 1640, 1671, 1704, 1738, 1772]
+
         rk = res.get("reason", "")
         for label, ry in zip(reason_labels, reason_y):
             if rk and rk.split(".")[0].strip() == label.split(".")[0].strip():
                 draw_maru(d, (148, ry), r=16)
+
+                # 理由2: ベッド満床のサブ選択肢
+                if rk.startswith("2."):
+                    bed_map = {
+                        "救急外来": (427, 1570),
+                        "HCU":    (523, 1570),
+                        "4東":    (635, 1570),
+                        "その他": (752, 1570),
+                    }
+                    sub = res.get("bed_sub", "")
+                    if sub in bed_map:
+                        draw_maru(d, bed_map[sub], r=13)
+
+                # 理由3-6B: フリーコメント
+                comment_x = {
+                    "3.": 480, "4.": 490, "5.": 430,
+                    "6-A.": 700, "6-B.": 720,
+                }
+                rk_prefix = rk.split(" ")[0]
+                if rk_prefix in comment_x and res.get("reason_comment"):
+                    d.text((comment_x[rk_prefix], ry - 14),
+                           res["reason_comment"], font=f24, fill="black")
                 break
 
     return base
@@ -361,6 +385,16 @@ if uploaded:
                 "6-B. 看護師処置中",
                 "7. その他",
             ])
+            # 理由2: ベッド満床のサブ選択肢
+            if res["reason"].startswith("2."):
+                res["bed_sub"] = st.radio(
+                    "ベッド満床の場所",
+                    ["救急外来", "HCU", "4東", "その他"],
+                    horizontal=True
+                )
+            # 理由3-6B: フリーコメント入力
+            if any(res["reason"].startswith(p) for p in ["3.", "4.", "5.", "6-A.", "6-B."]):
+                res["reason_comment"] = st.text_input("コメント（理由の右欄）", placeholder="例：循環器科対応中")
 
         if st.button("🖨️ 台帳を生成", type="primary"):
             result = render_triage(data, recorder, origin, history_yn, history_dept, decision, res, case_no)
