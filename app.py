@@ -212,15 +212,8 @@ if uploaded_file:
                     d.text(POS_HOUR, data["hour"], font=f_m, fill="black")
                     d.text(POS_MINUTE, data["minute"], font=f_m, fill="black")
 
-                    # 依頼元（白塗り→一括再描画）
-                    d.rectangle([(1050, 460), (1250, 545)], fill="white")
-                    origin_text = origin + "救急隊"
-                    f_origin = get_font(24)
-                    bw = f_origin.getbbox(origin_text)
-                    origin_w = bw[2] - bw[0]
-                    origin_x = 1047 + (209 - origin_w) // 2  # セル内中央
-                    d.text((origin_x, 500), origin_text, font=f_origin, fill="black")
-                    d.text((1065, 460), "依頼元", font=get_font(28), fill="black")
+                    # 依頼元（セル X=1256-1624 内、「救急隊」の左に記入）
+                    d.text((1300, 490), origin, font=f_s, fill="black")
 
                     # --- 記載者 ---
                     d.text(POS_RECORDER, recorder, font=f_l, fill="black")
@@ -236,19 +229,13 @@ if uploaded_file:
                     d.text(POS_KANA, data["kana"], font=f_s, fill="black")
                     d.text(POS_KANJI, data["kanji"], font=f_l, fill="black")
 
-                    # 生年月日
+                    # 生年月日（各ラベルの左に配置）
                     b = data["birth"]
                     if len(b) == 8:
-                        f_birth = get_font(36)
-                        # 年: right-align before "年" label
-                        bw = f_birth.getbbox(b[:4])
-                        d.text((POS_BIRTH_Y_RIGHT - (bw[2]-bw[0]), 580), b[:4], font=f_birth, fill="black")
-                        # 月: right-align before "月" label
-                        bw = f_birth.getbbox(b[4:6])
-                        d.text((POS_BIRTH_M_RIGHT - (bw[2]-bw[0]), 580), b[4:6], font=f_birth, fill="black")
-                        # 日: right-align before "日" label
-                        bw = f_birth.getbbox(b[6:])
-                        d.text((POS_BIRTH_D_RIGHT - (bw[2]-bw[0]), 580), b[6:], font=f_birth, fill="black")
+                        f_birth = get_font(30)
+                        d.text((1530, 590), b[:4], font=f_birth, fill="black")  # 年号
+                        d.text((1700, 590), b[4:6], font=f_birth, fill="black") # 月
+                        d.text((2130, 590), b[6:], font=f_birth, fill="black")  # 日
 
                     # 年齢
                     if data["age"]:
