@@ -131,7 +131,7 @@ def parse_qr(raw):
     }
 
 # ===== テンプレート描画 =====
-def render_triage(data, recorder, origin, history_yn, history_dept, decision, res, case_no):
+def render_triage(data, recorder, origin, history_yn, history_dept, decision, res, case_no, free_note=""):
     base = Image.open("template.png").convert("RGB")
     d = ImageDraw.Draw(base)
 
@@ -153,14 +153,14 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     cell_w = 1176 - 911
     tw = getlength(recorder, f44)
     kx_rec = 911 + (cell_w - tw) // 2
-    d.text((kx_rec, 55), recorder, font=f44, fill="black")
+    d.text((kx_rec, 38), recorder, font=f44, fill="black")
 
     # ===== 依頼日時 =====
     d.text((155, 145), data["dt_str"], font=f36, fill="black")
 
     # ===== 依頼元（救急隊名, V=676-911） =====
     origin_clean = origin.replace("救急隊", "").strip()
-    d.text((690, 148), origin_clean, font=f28, fill="black")
+    d.text((730, 148), origin_clean, font=f28, fill="black")
 
     # ===== 受診歴 =====
     if history_yn == "有":
@@ -209,7 +209,7 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     if line:
         complaint_lines.append(line)
     for i, ln in enumerate(complaint_lines):
-        d.text((150, 385 + i * 32), ln, font=f28, fill="black")
+        d.text((150, 405 + i * 32), ln, font=f28, fill="black")
 
     # ===== 経過等（折返し幅18文字, Y>1260で打切り） =====
     history_lines = []
@@ -313,6 +313,20 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
                            res["reason_comment"], font=f24, fill="black")
                 break
 
+    # ===== 自由記載（Y=1870付近, 折返し幅35文字） =====
+    if free_note:
+        fn_lines = []
+        line = ""
+        for ch in free_note:
+            line += ch
+            if len(line) >= 35:
+                fn_lines.append(line)
+                line = ""
+        if line:
+            fn_lines.append(line)
+        for i, ln in enumerate(fn_lines):
+            d.text((150, 1870 + i * 36), ln, font=f28, fill="black")
+
     return base
 
 # ===== メインUI =====
@@ -360,6 +374,7 @@ if uploaded:
 
         complaint_edit = st.text_input("主訴（編集可）", value=data["complaint"])
         data["complaint"] = complaint_edit
+        free_note = st.text_area("自由記載", placeholder="自由記載欄へのコメントを入力", height=80)
 
         res = {}
         if decision == "応需":
@@ -397,7 +412,7 @@ if uploaded:
                 res["reason_comment"] = st.text_input("コメント（理由の右欄）", placeholder="例：循環器科対応中")
 
         if st.button("🖨️ 台帳を生成", type="primary"):
-            result = render_triage(data, recorder, origin, history_yn, history_dept, decision, res, case_no)
+            result = render_triage(data, recorder, origin, history_yn, history_dept, decision, res, case_no, free_note)
             st.image(result, use_container_width=True)
             buf = io.BytesIO()
             result.save(buf, format="JPEG", quality=95)
