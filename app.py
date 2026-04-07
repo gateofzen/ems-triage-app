@@ -149,7 +149,7 @@ if uploaded_file:
                     if history_yn == "有":
                         draw_maru(d, (1100, 165))
                         if history_dept:
-                            d.text((1130, 150), history_dept, font=f24, fill="black")
+                            d.text((1130, 150), history_dept.rstrip("科"), font=f24, fill="black")
                     else:
                         draw_maru(d, (1270, 165))
 
@@ -169,7 +169,7 @@ if uploaded_file:
 
                     # ===== 年齢 =====
                     if data["age"]:
-                        d.text((690, 308), data["age"], font=f28, fill="black")
+                        d.text((755, 308), data["age"], font=f28, fill="black")
 
                     # ===== 性別 =====
                     if data["gender"] == "2" or "女" in data["gender"]:
@@ -214,14 +214,14 @@ if uploaded_file:
                         elif res["init"] == "その他":
                             draw_maru(d, (888, 1345), r=27)
                             if res.get("init_other"):
-                                d.text((920, 1332), res["init_other"].rstrip("科"), font=f18, fill="black")
+                                d.text((960, 1332), res["init_other"].rstrip("科"), font=f18, fill="black")
                         if res["out"] == "入院":
                             draw_maru(d, (400, 1435), r=16)
                             wp = {"4東":(784,1466),"HCU":(861,1466),"ICU":(943,1466)}
                             if res.get("ward") in wp:
                                 draw_maru(d, wp[res["ward"]], r=18)
                             elif res.get("ward") == "その他" and res.get("ward_other"):
-                                d.text((770, 1505), res["ward_other"], font=f18, fill="black")
+                                d.text((770, 1490), res["ward_other"], font=f18, fill="black")
                             if res.get("main") == "臨研":
                                 draw_maru(d, (1083, 1445), r=18)
                             elif res.get("main") == "救急科":
