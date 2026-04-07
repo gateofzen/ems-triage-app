@@ -262,7 +262,7 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
 
     # ===== 性別 =====
     if data["gender"] == "1":
-        draw_maru(d, (1008, 322), r=18)
+        draw_maru(d, (1140, 318), r=18)
     elif data["gender"] == "2":
         draw_maru(d, (1214, 322), r=18)
 
