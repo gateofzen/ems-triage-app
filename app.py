@@ -147,7 +147,7 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     tw_no = getlength(no_str, f_no)
     cell_w_no = 135 - 11
     no_x = 11 + (cell_w_no - tw_no) // 2
-    d.text((no_x, 48), no_str, font=f_no, fill="black")
+    d.text((no_x, 26), no_str, font=f_no, fill="black")
 
     # ===== 記載者（V=911-1176, Y=55, 中央寄せ） =====
     cell_w = 1176 - 911
