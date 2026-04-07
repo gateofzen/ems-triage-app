@@ -73,7 +73,7 @@ def draw_maru(draw, xy, r=40):
     draw.ellipse((x-r,y-r,x+r,y+r), outline="red", width=10)
 
 st.set_page_config(page_title="台帳作成システム", layout="centered")
-st.title("🚑 トリアージ台帳 v18b")
+st.title("🚑 トリアージ台帳 v18c")
 
 uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=["png","jpg","jpeg"])
 
@@ -171,51 +171,51 @@ if uploaded_file:
                     d.text((450,598), data["kanji"], font=f_l, fill="black")
 
                     # ========== 生年月日 ==========
-                    # 「年」ラベルX=1624, 「月」ラベルX=1787, 「日」ラベルX=2209
-                    # 各値を各ラベルの直前に配置（右端基準）
+                    # テンプレート画像から「年」「月」「日」ラベル位置を動的検出
                     b = data["birth"]
                     if len(b) >= 8:
                         f_bd = get_font(36)
+                        base_arr = np.array(base)
+                        gray_row = np.mean(base_arr[575:640, :, :], axis=(0, 2))  # 生年月日行の暗さプロファイル
+
+                        # 「年」「月」「日」の位置を検出（暗いピクセルのクラスタ）
+                        # 検索範囲: 年=1580-1680, 月=1700-1900, 日=2100-2260
+                        def find_label_x(gray_profile, x_start, x_end):
+                            region = gray_profile[x_start:x_end]
+                            dark = np.where(region < 180)[0]
+                            if len(dark) > 0:
+                                return x_start + dark[0]  # ラベルの左端
+                            return None
+
+                        nen_x = find_label_x(gray_row, 1550, 1750)
+                        tsuki_x = find_label_x(gray_row, 1700, 1950)
+                        nichi_x = find_label_x(gray_row, 2050, 2300)
+
+                        st.info(f"v18b ラベル検出: 年={nen_x}, 月={tsuki_x}, 日={nichi_x}")
+
                         year_str = b[:4]
                         month_str = b[4:6]
                         day_str = b[6:8]
 
-                        # デバッグ情報表示
-                        st.info(f"v18 生年月日: birth='{b}', year='{year_str}', month='{month_str}', day='{day_str}'")
+                        # 各値の右端をラベル左端の手前に配置
+                        def right_align_text(draw, text, font, right_x, y):
+                            try:
+                                w = int(font.getlength(text))
+                            except Exception:
+                                bb = font.getbbox(text)
+                                w = bb[2] - bb[0]
+                            x = right_x - w - 5  # 5px余白
+                            draw.text((x, y), text, font=font, fill="black")
+                            return x, w
 
-                        # 年号: 「年」(X=1624)の直前に右端を揃える
-                        year_right_x = 1618
-                        try:
-                            yw = int(f_bd.getlength(year_str))
-                        except Exception:
-                            yw = 80
-                        year_x = year_right_x - yw
-                        d.text((year_x, 585), year_str, font=f_bd, fill="black")
+                        if nen_x:
+                            yx, yw = right_align_text(d, year_str, f_bd, nen_x, 585)
+                        if tsuki_x:
+                            mx, mw = right_align_text(d, month_str, f_bd, tsuki_x, 585)
+                        if nichi_x:
+                            dx, dw = right_align_text(d, day_str, f_bd, nichi_x, 585)
 
-                        # 月: 「月」(X=1787)の直前に右端を揃える
-                        month_right_x = 1780
-                        try:
-                            mw = int(f_bd.getlength(month_str))
-                        except Exception:
-                            mw = 40
-                        month_x = month_right_x - mw
-                        d.text((month_x, 585), month_str, font=f_bd, fill="black")
-
-                        # 日: 「日」(X=2209)の直前に右端を揃える
-                        day_right_x = 2202
-                        try:
-                            dw = int(f_bd.getlength(day_str))
-                        except Exception:
-                            dw = 40
-                        day_x = day_right_x - dw
-                        d.text((day_x, 585), day_str, font=f_bd, fill="black")
-
-                        st.info(f"v18 座標: year=({year_x},585) w={yw}, month=({month_x},585) w={mw}, day=({day_x},585) w={dw}")
-
-                        # デバッグ: 各テキスト位置に赤い十字マーカーを描画
-                        for mx, label in [(year_x, "Y"), (month_x, "M"), (day_x, "D")]:
-                            d.line([(mx, 570), (mx, 600)], fill="red", width=3)
-                            d.line([(mx-10, 585), (mx+10, 585)], fill="red", width=3)
+                        st.info(f"v18b 配置結果: year=({yx},{585}), month=({mx},{585}), day=({dx},{585})")
 
                     # ========== 年齢 ==========
                     if data["age"]:
