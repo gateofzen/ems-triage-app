@@ -73,7 +73,7 @@ def draw_maru(draw, xy, r=40):
     draw.ellipse((x-r,y-r,x+r,y+r), outline="red", width=10)
 
 st.set_page_config(page_title="台帳作成システム", layout="centered")
-st.title("🚑 トリアージ台帳 v18d")
+st.title("🚑 トリアージ台帳 v18e-TEST")
 
 uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=["png","jpg","jpeg"])
 
@@ -211,7 +211,10 @@ if uploaded_file:
                         if nen_x:
                             yx, yw = right_align_text(d, year_str, f_bd, nen_x, 585)
                         if tsuki_x:
-                            mx, mw = right_align_text(d, month_str, f_bd, tsuki_x, 585)
+                            # テスト: 月を「月」ラベルの直前に大きいフォントで赤色描画
+                            test_font = get_font(50)
+                            d.text((tsuki_x - 70, 570), month_str, font=test_font, fill="red")
+                            mx, mw = tsuki_x - 70, 70
                         if nichi_x:
                             dx, dw = right_align_text(d, day_str, f_bd, nichi_x, 585)
 
