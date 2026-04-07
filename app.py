@@ -1,4 +1,4 @@
-# v20 - ユーザー提供PNGテンプレート使用版
+# v21 - トリアージ台帳2.png対応版（全座標修正済み）
 import streamlit as st
 import cv2
 import numpy as np
@@ -14,8 +14,7 @@ def get_font(size):
     for p in ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
               "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
               "/usr/share/fonts/fonts-japanese-gothic.ttf"]:
-        if os.path.exists(p):
-            return ImageFont.truetype(p, size)
+        if os.path.exists(p): return ImageFont.truetype(p, size)
     return ImageFont.load_default()
 
 def decode_qr_raw(b64_string):
@@ -67,14 +66,14 @@ def draw_maru(draw, xy, r=22):
     x, y = xy
     draw.ellipse((x-r,y-r,x+r,y+r), outline="red", width=5)
 
-# ============================================================
-# 座標定数（1339x2000 PNG テンプレート基準）
-# グリッド H: 0,34,120,221,288,355,489,556,...,1294,1394,1428,1529,1797,1998
-# グリッド V: 10,136,270,548,683,920,1053,1322
-# ============================================================
+# =================================================================
+# テンプレート: トリアージ台帳2.png (1327x2000)
+# グリッド H: 3,36,122,222,289,356,490,557,691,758,825,892,959,1026,1093,1294,1395,1428,1528,1797,1998
+# グリッド V: 11,135,268,543,676,911,1043,1309
+# =================================================================
 
 st.set_page_config(page_title="台帳作成システム", layout="centered")
-st.title("🚑 トリアージ台帳 v20")
+st.title("🚑 トリアージ台帳 v21")
 
 uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=["png","jpg","jpeg"])
 
@@ -135,117 +134,127 @@ if uploaded_file:
                 with st.spinner("作成中..."):
                     base = Image.open("template.png").convert("RGB")
                     d = ImageDraw.Draw(base)
-                    f16 = get_font(16)
-                    f20 = get_font(20)
-                    f22 = get_font(22)
+                    f18 = get_font(18)
+                    f24 = get_font(24)
+                    f28 = get_font(28)
                     f36 = get_font(36)
+                    f44 = get_font(44)
 
-                    # ===== 記載者 (H2セル: V=920-1187, Y=34-120) =====
-                    d.text((950, 60), recorder, font=f36, fill="black")
+                    # ===== 記載者（セル中央に大きく）=====
+                    # H2セル: V=911-1309, Y=36-122
+                    rec_w = f44.getlength(recorder)
+                    rec_x = int(911 + (398 - rec_w) / 2)
+                    d.text((rec_x, 55), recorder, font=f44, fill="black")
 
-                    # ===== 依頼日時 (Y=120-221) =====
-                    d.text((235,150), data["month"], font=f22, fill="black")
-                    d.text((295,150), data["day"], font=f22, fill="black")
-                    d.text((370,150), data["weekday"], font=f22, fill="black")
-                    d.text((420,150), data["hour"], font=f22, fill="black")
-                    d.text((480,150), data["minute"], font=f22, fill="black")
+                    # ===== 依頼日時 =====
+                    # B-Dセル: V=135-543, Y=122-222 (/()：消去済み)
+                    dt_str = f"{data['month']}/{data['day']}（{data['weekday']}）{data['hour']}:{data['minute']}"
+                    d.text((155, 148), dt_str, font=f28, fill="black")
 
-                    # ===== 依頼元 (F3セル: V=548-683, Y=120-221) =====
-                    d.text((580, 140), origin, font=f20, fill="black")
+                    # ===== 依頼元 救急隊名（F-Gセル: V=676-911）=====
+                    d.text((690, 148), origin, font=f28, fill="black")
 
-                    # ===== 受診歴 (I3セル: V=1053-1322) =====
+                    # ===== 受診歴 =====
                     if history_yn == "有":
                         draw_maru(d, (1100, 165))
                         if history_dept:
-                            d.text((1140, 155), history_dept, font=f20, fill="black")
+                            d.text((1130, 150), history_dept, font=f24, fill="black")
                     else:
-                        draw_maru(d, (1280, 165))
+                        draw_maru(d, (1270, 165))
 
-                    # ===== 患者名 (B6セル: V=136-548, Y=221-355) =====
-                    d.text((155, 228), data["kana"], font=f16, fill="black")
-                    d.text((155, 248), data["kanji"], font=f36, fill="black")
+                    # ===== 患者名（セル中央に大きく）=====
+                    # B-Eセル: V=135-543, Y=222-356
+                    d.text((170, 232), data["kana"], font=f18, fill="black")
+                    name_w = f44.getlength(data["kanji"])
+                    name_x = int(135 + (408 - name_w) / 2)
+                    d.text((name_x, 260), data["kanji"], font=f44, fill="black")
 
-                    # ===== 生年月日 (検証済み) =====
+                    # ===== 生年月日（右寄せ配置）=====
+                    # 年label左端=1015, 月label左端=1150, 日label左端=1284
                     b = data["birth"]
                     if len(b) >= 8:
-                        d.text((960, 240), b[:4], font=f22, fill="black")   # 年
-                        d.text((1110, 240), b[4:6], font=f22, fill="black") # 月
-                        d.text((1250, 240), b[6:8], font=f22, fill="black") # 日
+                        f_bd = f24
+                        for val, lbl_x in [(b[:4], 1010), (b[4:6], 1145), (b[6:8], 1279)]:
+                            w = f_bd.getlength(val)
+                            d.text((int(lbl_x - w), 245), val, font=f_bd, fill="black")
 
-                    # ===== 年齢 (G8セル) =====
+                    # ===== 年齢（ラベルの右に）=====
                     if data["age"]:
-                        d.text((700, 310), data["age"], font=f22, fill="black")
+                        d.text((785, 308), data["age"], font=f28, fill="black")
 
                     # ===== 性別 =====
                     if data["gender"] == "2" or "女" in data["gender"]:
-                        draw_maru(d, (1125, 320), r=18)
+                        draw_maru(d, (1105, 320), r=18)
                     else:
-                        draw_maru(d, (1015, 320), r=18)
+                        draw_maru(d, (1010, 320), r=18)
 
-                    # ===== 主訴 (B10セル: V=136-1322, Y=355-489) =====
+                    # ===== 主訴 =====
                     if complaint_edit:
-                        for i, line in enumerate(textwrap.wrap(complaint_edit, width=45)):
-                            d.text((150, 380+i*28), line, font=f22, fill="black")
+                        for i, line in enumerate(textwrap.wrap(complaint_edit, width=38)):
+                            d.text((150, 385+i*30), line, font=f24, fill="black")
 
-                    # ===== 経過等 (B14セル: V=136-683, Y=489-1294) =====
+                    # ===== 経過等 =====
                     if data["history"]:
                         for i, line in enumerate(textwrap.wrap(data["history"], width=22)):
                             y = 530 + i*28
                             if y > 1260: break
-                            d.text((150, y), line, font=f22, fill="black")
+                            d.text((150, y), line, font=f24, fill="black")
 
                     # ===== バイタルサイン =====
-                    vx = 990
+                    # 値セル: V=1043-1309 内、各行に配置
+                    vx = 1060
                     if data["jcs"]:
-                        d.text((vx+60, 700), data["jcs"], font=f22, fill="black")
+                        d.text((vx+55, 715), data["jcs"], font=f28, fill="black")
                     if data["rr"]:
-                        d.text((vx, 765), data["rr"], font=f22, fill="black")
+                        d.text((vx, 775), data["rr"], font=f28, fill="black")
                     if data["hr"]:
-                        d.text((vx, 835), data["hr"], font=f22, fill="black")
+                        d.text((vx, 845), data["hr"], font=f28, fill="black")
                     if data["bp_s"] and data["bp_d"]:
-                        d.text((vx, 905), f"{data['bp_s']}/{data['bp_d']}", font=f22, fill="black")
+                        d.text((vx, 915), f"{data['bp_s']}/{data['bp_d']}", font=f28, fill="black")
                     if data["spo2"]:
-                        d.text((vx, 970), data["spo2"], font=f22, fill="black")
+                        d.text((vx, 978), data["spo2"], font=f28, fill="black")
                     if data["bt"]:
-                        d.text((vx, 1040), data["bt"], font=f22, fill="black")
+                        d.text((vx, 1048), data["bt"], font=f28, fill="black")
 
                     # ===== 判定 =====
                     if decision == "応需":
-                        draw_maru(d, (74, 1335), r=26)
+                        draw_maru(d, (74, 1355), r=26)  # 応需
+
                         # 初期対応した科
                         if res["init"] == "当直医":
-                            draw_maru(d, (620, 1340), r=27)
+                            draw_maru(d, (615, 1345), r=27)
                         elif res["init"] == "救急科":
-                            draw_maru(d, (735, 1340), r=27)
+                            draw_maru(d, (737, 1345), r=27)
                         elif res["init"] == "その他":
-                            draw_maru(d, (855, 1340), r=27)
+                            draw_maru(d, (888, 1345), r=27)
                             if res.get("init_other"):
-                                d.text((920, 1330), res["init_other"].rstrip("科"), font=f16, fill="black")
+                                d.text((920, 1332), res["init_other"].rstrip("科"), font=f18, fill="black")
+
                         # 最終転帰
                         if res["out"] == "入院":
-                            draw_maru(d, (380, 1455), r=16)
+                            draw_maru(d, (345, 1445), r=16)
                             # 病棟
-                            wp = {"4東":(770,1475),"HCU":(830,1475),"ICU":(890,1475)}
+                            wp = {"4東":(790,1488),"HCU":(861,1488),"ICU":(943,1488)}
                             if res.get("ward") in wp:
                                 draw_maru(d, wp[res["ward"]], r=18)
                             elif res.get("ward") == "その他" and res.get("ward_other"):
-                                d.text((770, 1495), res["ward_other"], font=f16, fill="black")
+                                d.text((770, 1505), res["ward_other"], font=f18, fill="black")
                             # 主科
                             if res.get("main") == "臨研":
-                                draw_maru(d, (1100, 1450), r=18)
+                                draw_maru(d, (1095, 1457), r=18)
                             elif res.get("main") == "救急科":
-                                draw_maru(d, (1100, 1475), r=18)
+                                draw_maru(d, (1095, 1480), r=18)
                             elif res.get("main") == "その他" and res.get("main_other"):
-                                d.text((1095, 1500), res["main_other"].rstrip("科"), font=f16, fill="black")
+                                d.text((1095, 1500), res["main_other"].rstrip("科"), font=f18, fill="black")
                         elif res["out"] == "帰宅":
-                            draw_maru(d, (380, 1480), r=16)
+                            draw_maru(d, (345, 1470), r=16)
                     else:
-                        draw_maru(d, (74, 1400), r=26)
+                        draw_maru(d, (74, 1420), r=26)  # 不応需
                         rl = ["1","2","3","4","5","6-A","6-B","7"]
-                        reason_y = [1543, 1575, 1605, 1635, 1665, 1695, 1725, 1785]
+                        ry = [1543, 1573, 1603, 1633, 1663, 1693, 1725, 1785]
                         rk = res["reason"].split(".")[0].strip()
                         if rk in rl:
-                            draw_maru(d, (148, reason_y[rl.index(rk)]), r=16)
+                            draw_maru(d, (148, ry[rl.index(rk)]), r=16)
 
                     # ===== 出力 =====
                     st.image(base, use_container_width=True)
