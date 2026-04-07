@@ -131,7 +131,7 @@ def parse_qr(raw):
     }
 
 # ===== テンプレート描画 =====
-def render_triage(data, recorder, origin, history_yn, history_dept, decision, res):
+def render_triage(data, recorder, origin, history_yn, history_dept, decision, res, case_no):
     base = Image.open("template.png").convert("RGB")
     d = ImageDraw.Draw(base)
 
@@ -140,6 +140,14 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     f28 = get_font(28)
     f36 = get_font(36)
     f44 = get_font(44)
+
+    # ===== No.（X=11-135, Y=3-122, 中央寄せ） =====
+    no_str = str(case_no)
+    f_no = get_font(52)
+    tw_no = getlength(no_str, f_no)
+    cell_w_no = 135 - 11
+    no_x = 11 + (cell_w_no - tw_no) // 2
+    d.text((no_x, 48), no_str, font=f_no, fill="black")
 
     # ===== 記載者（V=911-1176, Y=55, 中央寄せ） =====
     cell_w = 1176 - 911
@@ -169,14 +177,14 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     d.text((kx, 245), data["kana"], font=f18, fill="black")
     d.text((kx, 268), data["kanji"], font=f44, fill="black")
 
-    # ===== 生年月日（右寄せ） =====
+    # ===== 生年月日（右寄せ, Y=315 = 289-356行の中央） =====
     for val, label_x in [(data["birth_y"], 1010), (data["birth_m"], 1145), (data["birth_d"], 1279)]:
         if val:
             tw = getlength(val, f24)
-            d.text((label_x - tw - 4, 290), val, font=f24, fill="black")
+            d.text((label_x - tw - 4, 315), val, font=f24, fill="black")
 
-    # ===== 年齢 =====
-    d.text((755, 308), data["age"], font=f28, fill="black")
+    # ===== 年齢（X=710: 年齢ラベルと歳の間） =====
+    d.text((710, 315), data["age"], font=f28, fill="black")
 
     # ===== 性別 =====
     if data["gender"] == "1":
@@ -246,7 +254,7 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
         if res.get("ward") in ward_map:
             draw_maru(d, ward_map[res["ward"]], r=18)
         elif res.get("ward") == "その他" and res.get("ward_other"):
-            d.text((770, 1490), res["ward_other"], font=f18, fill="black")
+            d.text((940, 1465), res["ward_other"], font=f18, fill="black")
 
         # 主科
         main_map = {"臨研": (1083, 1445), "救急科": (1095, 1480)}
@@ -310,6 +318,7 @@ if uploaded:
 
         col1, col2 = st.columns(2)
         with col1:
+            case_no = st.selectbox("No.", list(range(1, 16)))
             recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
             origin = st.text_input("依頼元（救急隊）", value="中央")
             history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
@@ -348,7 +357,7 @@ if uploaded:
             ])
 
         if st.button("🖨️ 台帳を生成", type="primary"):
-            result = render_triage(data, recorder, origin, history_yn, history_dept, decision, res)
+            result = render_triage(data, recorder, origin, history_yn, history_dept, decision, res, case_no)
             st.image(result, use_container_width=True)
             buf = io.BytesIO()
             result.save(buf, format="JPEG", quality=95)
