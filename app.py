@@ -230,13 +230,24 @@ if uploaded_file:
                     d.text(POS_KANA, data["kana"], font=f_s, fill="black")
                     d.text(POS_KANJI, data["kanji"], font=f_l, fill="black")
 
-                    # 生年月日（各ラベル直前に右寄せ配置）
+                    # 生年月日（各ラベル直前に右寄せ）
+                    # 「年」X=1624, 「月」X=1787, 「日」X=2209
                     b = data["birth"]
                     if len(b) == 8:
                         f_birth = get_font(36)
-                        d.text((1615, 585), b[:4],  font=f_birth, fill="black", anchor="rt")
-                        d.text((1778, 585), b[4:6], font=f_birth, fill="black", anchor="rt")
-                        d.text((2200, 585), b[6:],  font=f_birth, fill="black", anchor="rt")
+                        birth_y = 585
+                        def text_width(font, text):
+                            try:
+                                return font.getlength(text)
+                            except AttributeError:
+                                bb = font.getbbox(text)
+                                return bb[2] - bb[0]
+                        # 年号: 右端をX=1618に
+                        d.text((int(1618 - text_width(f_birth, b[:4])), birth_y), b[:4], font=f_birth, fill="black")
+                        # 月: 右端をX=1780に
+                        d.text((int(1780 - text_width(f_birth, b[4:6])), birth_y), b[4:6], font=f_birth, fill="black")
+                        # 日: 右端をX=2202に
+                        d.text((int(2202 - text_width(f_birth, b[6:])), birth_y), b[6:], font=f_birth, fill="black")
 
                     # 年齢
                     if data["age"]:
