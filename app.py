@@ -1,27 +1,18 @@
-# v18 - 生年月日完全固定座標版
+# v20 - Excel テンプレート直接書込み方式（座標ズレ完全解消）
 import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 import io
 import base64
-from pdf2image import convert_from_path
+import openpyxl
 from pyzbar.pyzbar import decode
 import os
 import textwrap
 from datetime import datetime
 
-def get_font(size):
-    for p in ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-              "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-              "/usr/share/fonts/fonts-japanese-gothic.ttf"]:
-        if os.path.exists(p):
-            return ImageFont.truetype(p, size)
-    return ImageFont.load_default()
-
 def decode_qr_raw(b64_string):
-    decoded = base64.b64decode(b64_string).decode("utf-8")
-    return decoded.split(",")
+    return base64.b64decode(b64_string).decode("utf-8").split(",")
 
 def parse_ems_qr(items):
     try:
@@ -29,23 +20,20 @@ def parse_ems_qr(items):
         weeks = ["月","火","水","木","金","土","日"]
         name_raw = items[4]
         kanji, kana = (name_raw.split("θ",1) if "θ" in name_raw else (name_raw,""))
-
-        field_8 = items[8].strip() if len(items) > 8 else ""
-        field_9 = items[9].strip() if len(items) > 9 else ""
-        field_10 = items[10].strip() if len(items) > 10 else ""
-        field_11 = items[11].strip() if len(items) > 11 else ""
+        field_8 = items[8].strip() if len(items)>8 else ""
+        field_9 = items[9].strip() if len(items)>9 else ""
+        field_10 = items[10].strip() if len(items)>10 else ""
+        field_11 = items[11].strip() if len(items)>11 else ""
         complaint = ""
-        history = ""
+        history = field_9 if len(field_9) > len(field_8) else field_8
         for f in [field_8, field_10, field_11]:
             if f and len(f) <= 30 and not f.isdigit():
                 complaint = f; break
-        history = field_9 if len(field_9) > len(field_8) else field_8
         if not complaint and history:
             for sep in ["。","、"]:
                 if sep in history:
                     c = history[:history.index(sep)]
                     if len(c) <= 30: complaint = c; break
-
         return {
             "month": str(dt.month), "day": str(dt.day),
             "weekday": weeks[dt.weekday()],
@@ -68,12 +56,8 @@ def parse_ems_qr(items):
         st.error(f"データ解析失敗: {e}")
         return None
 
-def draw_maru(draw, xy, r=40):
-    x, y = xy
-    draw.ellipse((x-r,y-r,x+r,y+r), outline="red", width=10)
-
 st.set_page_config(page_title="台帳作成システム", layout="centered")
-st.title("🚑 トリアージ台帳 v19")
+st.title("🚑 トリアージ台帳 v20")
 
 uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=["png","jpg","jpeg"])
 
@@ -82,11 +66,9 @@ if uploaded_file:
     with st.spinner("QRコードをスキャン中..."):
         qr = decode(img)
         if not qr:
-            gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
-            qr = decode(gray)
+            qr = decode(cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY))
         if not qr:
-            sharp = cv2.detailEnhance(np.array(img), sigma_s=10, sigma_r=0.15)
-            qr = decode(sharp)
+            qr = decode(cv2.detailEnhance(np.array(img), sigma_s=10, sigma_r=0.15))
 
     if qr:
         items = decode_qr_raw(qr[0].data.decode("utf-8"))
@@ -97,7 +79,7 @@ if uploaded_file:
             with st.expander("🔍 QRデータ確認"):
                 labels = {1:"依頼日時",4:"氏名",5:"性別",8:"主訴",9:"経過等",
                           13:"生年月日",14:"年齢",15:"JCS",19:"BP上",20:"BP下",
-                          21:"HR",22:"RR",23:"SpO2",24:"BT"}
+                          21:"HR",22:"RR",23:"BT",24:"SpO2"}
                 for i, v in enumerate(items):
                     lbl = f"  ← {labels[i]}" if i in labels else ""
                     st.text(f"[{i:2d}] {v[:80]}{lbl}")
@@ -134,175 +116,130 @@ if uploaded_file:
 
             if st.button("台帳を生成する", type="primary"):
                 with st.spinner("作成中..."):
-                    pages = convert_from_path("トリアージ台帳.pdf", dpi=300)
-                    base = pages[0].convert("RGB")
-                    d = ImageDraw.Draw(base)
+                    wb = openpyxl.load_workbook("トリアージ台帳.xlsx")
+                    ws = wb.active
 
-                    # デバッグ: 画像サイズ確認
-                    st.warning(f"v18 画像サイズ: {base.size}")
+                    # ===== 記載者 =====
+                    ws["H2"] = recorder
 
-                    f_s = get_font(30)
-                    f_m = get_font(42)
-                    f_l = get_font(68)
+                    # ===== 依頼日時 =====
+                    date_str = f"{data['month']}/{data['day']}  ({data['weekday']})  {data['hour']}:{data['minute']}"
+                    ws["B3"] = date_str
 
-                    # ========== 依頼日時 ==========
-                    d.text((455,445), data["month"], font=f_m, fill="black")
-                    d.text((580,445), data["day"], font=f_m, fill="black")
-                    d.text((720,445), data["weekday"], font=f_m, fill="black")
-                    d.text((820,445), data["hour"], font=f_m, fill="black")
-                    d.text((935,445), data["minute"], font=f_m, fill="black")
+                    # ===== 依頼元 =====
+                    ws["F3"] = f"{origin}救急隊"
 
-                    # ========== 依頼元（救急隊の左） ==========
-                    d.text((1270, 495), origin, font=f_m, fill="black")
-
-                    # ========== 記載者 ==========
-                    d.text((1750, 300), recorder, font=f_l, fill="black")
-
-                    # ========== 受診歴 ==========
+                    # ===== 受診歴 =====
                     if history_yn == "有":
-                        draw_maru(d, (1910,480))
-                        if history_dept:
-                            d.text((1960,445), history_dept, font=f_m, fill="black")
+                        dept = history_dept if history_dept else ""
+                        ws["I3"] = f"◯有( {dept} 科)・無"
                     else:
-                        draw_maru(d, (2180,480))
+                        ws["I3"] = "有(          科)・◯無"
 
-                    # ========== 患者名 ==========
-                    d.text((450,562), data["kana"], font=f_s, fill="black")
-                    d.text((450,598), data["kanji"], font=f_l, fill="black")
+                    # ===== 患者名 =====
+                    ws["B6"] = f"{data['kana']}\n{data['kanji']}"
 
-                    # ========== 生年月日 ==========
+                    # ===== 生年月日 =====
                     b = data["birth"]
                     if len(b) >= 8:
-                        f_bd = get_font(36)
-                        base_arr = np.array(base)
-                        # 生年月日行のグレースケール（Y=575-640を平均）
-                        gray_strip = np.mean(base_arr[575:640, :, :].astype(float), axis=(0, 2))
+                        ws["H6"] = f"{b[:4]}年"
+                        ws["I6"] = f"{b[4:6]}月"
+                        ws["J6"] = f"{b[6:8]}日"
 
-                        # 「年」「月」「日」ラベルの実際の文字位置を検出
-                        # セル境界線（幅3px程度）ではなく、文字（幅15px以上）を探す
-                        def find_text_cluster(profile, x_start, x_end, min_width=10):
-                            """暗いピクセルの連続クラスタ（幅min_width以上）を検出"""
-                            dark = profile[x_start:x_end] < 180
-                            clusters = []
-                            in_cluster = False
-                            start = 0
-                            for i in range(len(dark)):
-                                if dark[i] and not in_cluster:
-                                    start = i; in_cluster = True
-                                elif not dark[i] and in_cluster:
-                                    if i - start >= min_width:
-                                        clusters.append((start + x_start, i + x_start))
-                                    in_cluster = False
-                            if in_cluster and len(dark) - start >= min_width:
-                                clusters.append((start + x_start, len(dark) + x_start))
-                            return clusters
-
-                        # 年: X=1620-1720 で幅10px以上のクラスタ
-                        nen_clusters = find_text_cluster(gray_strip, 1620, 1720, min_width=10)
-                        # 月: X=1750-1850
-                        tsuki_clusters = find_text_cluster(gray_strip, 1750, 1850, min_width=10)
-                        # 日: X=2170-2260
-                        nichi_clusters = find_text_cluster(gray_strip, 2170, 2260, min_width=10)
-
-                        nen_x = nen_clusters[0][0] if nen_clusters else 1660
-                        tsuki_x = tsuki_clusters[0][0] if tsuki_clusters else 1800
-                        nichi_x = nichi_clusters[0][0] if nichi_clusters else 2220
-
-                        st.info(f"v18 ラベル検出: 年={nen_x}({nen_clusters}), 月={tsuki_x}({tsuki_clusters}), 日={nichi_x}({nichi_clusters})")
-
-                        year_str = b[:4]
-                        month_str = b[4:6]
-                        day_str = b[6:8]
-
-                        def right_align_text(draw, text, font, right_x, y):
-                            try:
-                                w = int(font.getlength(text))
-                            except Exception:
-                                bb = font.getbbox(text)
-                                w = bb[2] - bb[0]
-                            x = right_x - w - 5
-                            draw.text((x, y), text, font=font, fill="black")
-                            return x, w
-
-                        yx, yw = right_align_text(d, year_str, f_bd, nen_x, 585)
-                        mx, mw = right_align_text(d, month_str, f_bd, tsuki_x, 585)
-                        dx, dw = right_align_text(d, day_str, f_bd, nichi_x, 585)
-
-                        st.info(f"v18 配置: year=({yx}), month=({mx}), day=({dx})")
-
-                        # デバッグ: 生年月日行を拡大表示
-                        birth_crop = base.crop((1256, 555, 2248, 660))
-                        birth_crop = birth_crop.resize((birth_crop.width * 2, birth_crop.height * 2))
-                        st.image(birth_crop, caption="生年月日行 拡大（2倍）")
-
-                    # ========== 年齢 ==========
+                    # ===== 年齢 =====
                     if data["age"]:
-                        d.text((1475,680), data["age"], font=f_m, fill="black")
+                        ws["G8"] = f"{data['age']}歳"
 
-                    # ========== 性別 ==========
+                    # ===== 性別 =====
                     if data["gender"] == "2" or "女" in data["gender"]:
-                        draw_maru(d, (2100,708), r=35)
+                        ws["I8"] = "男　・　◯女"
                     else:
-                        draw_maru(d, (1980,708), r=35)
+                        ws["I8"] = "◯男　・　女"
 
-                    # ========== 主訴 ==========
-                    if complaint_edit:
-                        for i, line in enumerate(textwrap.wrap(complaint_edit, width=45)):
-                            d.text((420, 830+i*55), line, font=f_m, fill="black")
+                    # ===== 主訴 =====
+                    ws["B10"] = complaint_edit
 
-                    # ========== 経過等 ==========
-                    if data["history"]:
-                        for i, line in enumerate(textwrap.wrap(data["history"], width=28)):
-                            y = 1000 + i*55
-                            if y > 2100: break
-                            d.text((420, y), line, font=f_m, fill="black")
+                    # ===== 経過等 =====
+                    ws["B14"] = data["history"]
 
-                    # ========== バイタルサイン ==========
+                    # ===== バイタルサイン =====
                     if data["jcs"]:
-                        d.text((1960, 1278), data["jcs"], font=f_m, fill="black")
-                    for key, field in [("rr","rr"),("hr","hr"),("spo2","spo2"),("bt","bt")]:
-                        if data[field]:
-                            d.text((1845, {"rr":1390,"hr":1492,"spo2":1695,"bt":1795}[key]), data[field], font=f_m, fill="black")
+                        ws["I20"] = f"JCS {data['jcs']}"
+                    if data["rr"]:
+                        ws["I22"] = f"{data['rr']} 回/分"
+                    if data["hr"]:
+                        ws["I24"] = f"{data['hr']} 回/分"
                     if data["bp_s"] and data["bp_d"]:
-                        d.text((1845, 1593), f"{data['bp_s']}/{data['bp_d']}", font=f_m, fill="black")
+                        ws["I26"] = f"{data['bp_s']}/{data['bp_d']} mmHg"
+                    if data["spo2"]:
+                        ws["I28"] = f"{data['spo2']} %"
+                    if data["bt"]:
+                        ws["I30"] = f"{data['bt']} ℃"
 
-                    # ========== 判定 ==========
+                    # ===== 判定 =====
                     if decision == "応需":
-                        draw_maru(d, (300,2260), r=48)
+                        ws["A38"] = "◯応需\n・\n不応需\n(どちらかに◯)"
+
+                        # 初期対応した科
                         if res["init"] == "当直医":
-                            draw_maru(d, (1167,2260), r=50)
+                            ws["D38"] = "◯当直医　　・救急科　　・その他(　　　　　　　　科)"
                         elif res["init"] == "救急科":
-                            draw_maru(d, (1356,2260), r=50)
+                            ws["D38"] = "・当直医　　◯救急科　　・その他(　　　　　　　　科)"
                         elif res["init"] == "その他":
-                            draw_maru(d, (1574,2260), r=50)
-                            if res.get("init_other"):
-                                d.text((1720,2235), res["init_other"].rstrip("科"), font=get_font(26), fill="black")
+                            other_name = res.get("init_other","")
+                            ws["D38"] = f"・当直医　　・救急科　　◯その他( {other_name} )"
 
+                        # 最終転帰
                         if res["out"] == "入院":
-                            draw_maru(d, (841,2390), r=30)
-                            wp = {"4東":(1433,2440),"HCU":(1546,2440),"ICU":(1660,2440)}
-                            if res.get("ward") in wp:
-                                draw_maru(d, wp[res["ward"]], r=32)
-                            elif res.get("ward") == "その他" and res.get("ward_other"):
-                                d.text((1420,2460), res["ward_other"], font=get_font(26), fill="black")
-                            if res.get("main") == "臨研":
-                                draw_maru(d, (1892,2400), r=35)
-                            elif res.get("main") == "救急科":
-                                draw_maru(d, (1913,2445), r=35)
-                            elif res.get("main") == "その他" and res.get("main_other"):
-                                d.text((1890,2475), res["main_other"].rstrip("科"), font=get_font(26), fill="black")
-                        elif res["out"] == "帰宅":
-                            draw_maru(d, (764,2450), r=30)
-                    else:
-                        draw_maru(d, (265,2360), r=48)
-                        rl = ["1","2","3","4","5","6-A","6-B","7"]
-                        rk = res["reason"].split(".")[0].strip()
-                        if rk in rl:
-                            draw_maru(d, (230, [2553,2603,2653,2703,2753,2803,2853,2902][rl.index(rk)]), r=30)
+                            ws["C41"] = "◯入院\n・帰宅\nその他(　　　　　)"
 
-                    st.image(base, use_container_width=True)
+                            # 病棟
+                            ward = res.get("ward","")
+                            if ward == "4東":
+                                ws["F42"] = "◯4東　・HCU　・ICU\n・　　　　　　　　　病棟"
+                            elif ward == "HCU":
+                                ws["F42"] = "・4東　◯HCU　・ICU\n・　　　　　　　　　病棟"
+                            elif ward == "ICU":
+                                ws["F42"] = "・4東　・HCU　◯ICU\n・　　　　　　　　　病棟"
+                            elif ward == "その他":
+                                ward_name = res.get("ward_other","")
+                                ws["F42"] = f"・4東　・HCU　・ICU\n・　{ward_name}　病棟"
+
+                            # 主科
+                            main = res.get("main","")
+                            if main == "臨研":
+                                ws["I42"] = "◯臨研"
+                            elif main == "救急科":
+                                ws["I43"] = "◯救急科"
+                            elif main == "その他":
+                                main_name = res.get("main_other","").rstrip("科")
+                                ws["I44"] = f"・( {main_name} )科"
+
+                        elif res["out"] == "帰宅":
+                            ws["C41"] = "・入院\n◯帰宅\nその他(　　　　　)"
+                    else:
+                        ws["A38"] = "応需\n・\n◯不応需\n(どちらかに◯)"
+
+                        # 不応需理由にマーク
+                        reason_cells = {"1":"B45","2":"B46","3":"B47","4":"B48",
+                                       "5":"B49","6-A":"B50","6-B":"B51","7":"B52"}
+                        rk = res["reason"].split(".")[0].strip()
+                        if rk in reason_cells:
+                            cell = reason_cells[rk]
+                            original = ws[cell].value or ""
+                            ws[cell] = "◯" + original
+
+                    # ===== Excelファイルとして保存 =====
                     buf = io.BytesIO()
-                    base.save(buf, format="JPEG", quality=95)
-                    st.download_button("📥 台帳を保存", buf.getvalue(), f"triage_{data['kanji']}.jpg", "image/jpeg")
+                    wb.save(buf)
+                    buf.seek(0)
+
+                    st.success("台帳を生成しました")
+                    st.download_button(
+                        "📥 台帳をダウンロード（Excel）",
+                        buf.getvalue(),
+                        f"triage_{data['kanji']}.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
     else:
         st.error("QRコードが見つかりません。画像を拡大するか、明るい場所で撮り直してください。")
