@@ -137,7 +137,7 @@ POS_RECORDER = (1750, 300)
 
 # === メイン ===
 st.set_page_config(page_title="台帳作成システム", layout="centered")
-st.title("🚑 市立札幌病院 トリアージ台帳")
+st.title("🚑 市立札幌病院 トリアージ台帳 v17")
 
 uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=["png","jpg","jpeg"])
 
@@ -230,24 +230,21 @@ if uploaded_file:
                     d.text(POS_KANA, data["kana"], font=f_s, fill="black")
                     d.text(POS_KANJI, data["kanji"], font=f_l, fill="black")
 
-                    # 生年月日（各ラベル直前に右寄せ）
-                    # 「年」X=1624, 「月」X=1787, 「日」X=2209
+                    # 生年月日（完全固定座標 — 幅計算なし）
                     b = data["birth"]
                     if len(b) == 8:
                         f_birth = get_font(36)
-                        birth_y = 585
-                        def text_width(font, text):
-                            try:
-                                return font.getlength(text)
-                            except AttributeError:
-                                bb = font.getbbox(text)
-                                return bb[2] - bb[0]
-                        # 年号: 右端をX=1618に
-                        d.text((int(1618 - text_width(f_birth, b[:4])), birth_y), b[:4], font=f_birth, fill="black")
-                        # 月: 右端をX=1780に
-                        d.text((int(1780 - text_width(f_birth, b[4:6])), birth_y), b[4:6], font=f_birth, fill="black")
-                        # 日: 右端をX=2202に
-                        d.text((int(2202 - text_width(f_birth, b[6:])), birth_y), b[6:], font=f_birth, fill="black")
+                        # デバッグ: 計算値を表示
+                        try:
+                            _w4 = f_birth.getlength(b[:4])
+                            _w2 = f_birth.getlength(b[4:6])
+                            st.caption(f"DEBUG: birth='{b}', year_w={_w4:.0f}, month_w={_w2:.0f}")
+                        except Exception:
+                            pass
+                        # 固定座標（ローカル検証済み）
+                        d.text((1538, 585), b[:4],  font=f_birth, fill="black")  # 年号
+                        d.text((1740, 585), b[4:6], font=f_birth, fill="black")  # 月
+                        d.text((2162, 585), b[6:],  font=f_birth, fill="black")  # 日
 
                     # 年齢
                     if data["age"]:
