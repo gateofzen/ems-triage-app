@@ -73,7 +73,7 @@ def draw_maru(draw, xy, r=40):
     draw.ellipse((x-r,y-r,x+r,y+r), outline="red", width=10)
 
 st.set_page_config(page_title="台帳作成システム", layout="centered")
-st.title("🚑 トリアージ台帳 v18e-TEST")
+st.title("🚑 トリアージ台帳 v19")
 
 uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=["png","jpg","jpeg"])
 
@@ -171,54 +171,64 @@ if uploaded_file:
                     d.text((450,598), data["kanji"], font=f_l, fill="black")
 
                     # ========== 生年月日 ==========
-                    # テンプレート画像から「年」「月」「日」ラベル位置を動的検出
                     b = data["birth"]
                     if len(b) >= 8:
                         f_bd = get_font(36)
                         base_arr = np.array(base)
-                        gray_row = np.mean(base_arr[575:640, :, :], axis=(0, 2))  # 生年月日行の暗さプロファイル
+                        # 生年月日行のグレースケール（Y=575-640を平均）
+                        gray_strip = np.mean(base_arr[575:640, :, :].astype(float), axis=(0, 2))
 
-                        # 「年」「月」「日」の位置を検出（暗いピクセルのクラスタ）
-                        # 検索範囲: 年=1580-1680, 月=1700-1900, 日=2100-2260
-                        def find_label_x(gray_profile, x_start, x_end):
-                            region = gray_profile[x_start:x_end]
-                            dark = np.where(region < 180)[0]
-                            if len(dark) > 0:
-                                return x_start + dark[0]  # ラベルの左端
-                            return None
+                        # 「年」「月」「日」ラベルの実際の文字位置を検出
+                        # セル境界線（幅3px程度）ではなく、文字（幅15px以上）を探す
+                        def find_text_cluster(profile, x_start, x_end, min_width=10):
+                            """暗いピクセルの連続クラスタ（幅min_width以上）を検出"""
+                            dark = profile[x_start:x_end] < 180
+                            clusters = []
+                            in_cluster = False
+                            start = 0
+                            for i in range(len(dark)):
+                                if dark[i] and not in_cluster:
+                                    start = i; in_cluster = True
+                                elif not dark[i] and in_cluster:
+                                    if i - start >= min_width:
+                                        clusters.append((start + x_start, i + x_start))
+                                    in_cluster = False
+                            if in_cluster and len(dark) - start >= min_width:
+                                clusters.append((start + x_start, len(dark) + x_start))
+                            return clusters
 
-                        nen_x = find_label_x(gray_row, 1550, 1750)
-                        tsuki_x = find_label_x(gray_row, 1700, 1950)
-                        nichi_x = find_label_x(gray_row, 2050, 2300)
+                        # 年: X=1620-1720 で幅10px以上のクラスタ
+                        nen_clusters = find_text_cluster(gray_strip, 1620, 1720, min_width=10)
+                        # 月: X=1750-1850
+                        tsuki_clusters = find_text_cluster(gray_strip, 1750, 1850, min_width=10)
+                        # 日: X=2170-2260
+                        nichi_clusters = find_text_cluster(gray_strip, 2170, 2260, min_width=10)
 
-                        st.info(f"v18b ラベル検出: 年={nen_x}, 月={tsuki_x}, 日={nichi_x}")
+                        nen_x = nen_clusters[0][0] if nen_clusters else 1660
+                        tsuki_x = tsuki_clusters[0][0] if tsuki_clusters else 1800
+                        nichi_x = nichi_clusters[0][0] if nichi_clusters else 2220
+
+                        st.info(f"v18 ラベル検出: 年={nen_x}({nen_clusters}), 月={tsuki_x}({tsuki_clusters}), 日={nichi_x}({nichi_clusters})")
 
                         year_str = b[:4]
                         month_str = b[4:6]
                         day_str = b[6:8]
 
-                        # 各値の右端をラベル左端の手前に配置
                         def right_align_text(draw, text, font, right_x, y):
                             try:
                                 w = int(font.getlength(text))
                             except Exception:
                                 bb = font.getbbox(text)
                                 w = bb[2] - bb[0]
-                            x = right_x - w - 5  # 5px余白
-                            draw.text((x, y), text, font=font, fill="blue")
+                            x = right_x - w - 5
+                            draw.text((x, y), text, font=font, fill="black")
                             return x, w
 
-                        if nen_x:
-                            yx, yw = right_align_text(d, year_str, f_bd, nen_x, 585)
-                        if tsuki_x:
-                            # テスト: 月を「月」ラベルの直前に大きいフォントで赤色描画
-                            test_font = get_font(50)
-                            d.text((tsuki_x - 70, 570), month_str, font=test_font, fill="red")
-                            mx, mw = tsuki_x - 70, 70
-                        if nichi_x:
-                            dx, dw = right_align_text(d, day_str, f_bd, nichi_x, 585)
+                        yx, yw = right_align_text(d, year_str, f_bd, nen_x, 585)
+                        mx, mw = right_align_text(d, month_str, f_bd, tsuki_x, 585)
+                        dx, dw = right_align_text(d, day_str, f_bd, nichi_x, 585)
 
-                        st.info(f"v18b 配置結果: year=({yx},{585}), month=({mx},{585}), day=({dx},{585})")
+                        st.info(f"v18 配置: year=({yx}), month=({mx}), day=({dx})")
 
                         # デバッグ: 生年月日行を拡大表示
                         birth_crop = base.crop((1256, 555, 2248, 660))
