@@ -73,7 +73,7 @@ def draw_maru(draw, xy, r=40):
     draw.ellipse((x-r,y-r,x+r,y+r), outline="red", width=10)
 
 st.set_page_config(page_title="台帳作成システム", layout="centered")
-st.title("🚑 トリアージ台帳 v18c")
+st.title("🚑 トリアージ台帳 v18d")
 
 uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=["png","jpg","jpeg"])
 
@@ -205,7 +205,7 @@ if uploaded_file:
                                 bb = font.getbbox(text)
                                 w = bb[2] - bb[0]
                             x = right_x - w - 5  # 5px余白
-                            draw.text((x, y), text, font=font, fill="black")
+                            draw.text((x, y), text, font=font, fill="blue")
                             return x, w
 
                         if nen_x:
@@ -216,6 +216,11 @@ if uploaded_file:
                             dx, dw = right_align_text(d, day_str, f_bd, nichi_x, 585)
 
                         st.info(f"v18b 配置結果: year=({yx},{585}), month=({mx},{585}), day=({dx},{585})")
+
+                        # デバッグ: 生年月日行を拡大表示
+                        birth_crop = base.crop((1256, 555, 2248, 660))
+                        birth_crop = birth_crop.resize((birth_crop.width * 2, birth_crop.height * 2))
+                        st.image(birth_crop, caption="生年月日行 拡大（2倍）")
 
                     # ========== 年齢 ==========
                     if data["age"]:
