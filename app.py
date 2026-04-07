@@ -1,247 +1,360 @@
-# v21 - トリアージ台帳2.png対応 全座標検証済み
 import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-import io
+import pyzbar.pyzbar as pyzbar
 import base64
-from pyzbar.pyzbar import decode
+import io
 import os
-import textwrap
 from datetime import datetime
 
+st.set_page_config(page_title="トリアージ台帳自動作成", layout="centered")
+st.title("🚑 トリアージ台帳自動作成")
+
+# ===== フォントパス =====
+FONT_CANDIDATES = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+]
+
 def get_font(size):
-    for p in ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-              "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-              "/usr/share/fonts/fonts-japanese-gothic.ttf"]:
-        if os.path.exists(p): return ImageFont.truetype(p, size)
+    for path in FONT_CANDIDATES:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
     return ImageFont.load_default()
 
-def decode_qr_raw(b64_string):
-    return base64.b64decode(b64_string).decode("utf-8").split(",")
+# ===== テキスト長（ピクセル）を計算 =====
+def getlength(text, font):
+    dummy = Image.new("RGB", (1, 1))
+    d = ImageDraw.Draw(dummy)
+    bbox = d.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0]
 
-def parse_ems_qr(items):
-    try:
-        dt = datetime.strptime(items[1], "%Y/%m/%d %H:%M:%S")
-        weeks = ["月","火","水","木","金","土","日"]
-        name_raw = items[4]
-        kanji, kana = (name_raw.split("θ",1) if "θ" in name_raw else (name_raw,""))
-        field_8 = items[8].strip() if len(items)>8 else ""
-        field_9 = items[9].strip() if len(items)>9 else ""
-        field_10 = items[10].strip() if len(items)>10 else ""
-        field_11 = items[11].strip() if len(items)>11 else ""
-        complaint = ""
-        history = field_9 if len(field_9) > len(field_8) else field_8
-        for f in [field_8, field_10, field_11]:
-            if f and len(f) <= 30 and not f.isdigit():
-                complaint = f; break
-        if not complaint and history:
-            for sep in ["。","、"]:
-                if sep in history:
-                    c = history[:history.index(sep)]
-                    if len(c) <= 30: complaint = c; break
-        return {
-            "month": str(dt.month), "day": str(dt.day),
-            "weekday": weeks[dt.weekday()],
-            "hour": f"{dt.hour:02}", "minute": f"{dt.minute:02}",
-            "kanji": kanji.strip().replace("　"," "),
-            "kana": kana.strip().replace("　"," "),
-            "gender": items[5],
-            "complaint": complaint, "history": history,
-            "birth": items[13],
-            "age": items[14] if len(items)>14 else "",
-            "jcs": items[15] if len(items)>15 else "",
-            "bp_s": items[19] if len(items)>19 else "",
-            "bp_d": items[20] if len(items)>20 else "",
-            "hr": items[21] if len(items)>21 else "",
-            "rr": items[22] if len(items)>22 else "",
-            "bt": items[23] if len(items)>23 else "",
-            "spo2": items[24] if len(items)>24 else "",
-        }
-    except Exception as e:
-        st.error(f"データ解析失敗: {e}")
+# ===== 赤丸描画 =====
+def draw_maru(draw, center, r=22):
+    x, y = center
+    draw.ellipse([x - r, y - r, x + r, y + r], outline="red", width=5)
+
+# ===== QRデコード =====
+def decode_qr(uploaded):
+    file_bytes = np.frombuffer(uploaded.read(), np.uint8)
+    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    if img is None:
         return None
+    # コントラスト強調
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    for scale in [1.0, 0.75, 0.5, 1.5]:
+        h, w = gray.shape
+        resized = cv2.resize(gray, (int(w * scale), int(h * scale)))
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(resized)
+        for proc in [enhanced, resized, cv2.threshold(resized, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]]:
+            decoded = pyzbar.decode(proc)
+            if decoded:
+                return decoded[0].data.decode("utf-8")
+    return None
 
-def draw_maru(draw, xy, r=22):
-    x, y = xy
-    draw.ellipse((x-r,y-r,x+r,y+r), outline="red", width=5)
+# ===== QRデータ解析 =====
+def parse_qr(raw):
+    try:
+        decoded = base64.b64decode(raw).decode("utf-8")
+    except Exception:
+        decoded = raw
+    items = decoded.split(",")
 
-st.set_page_config(page_title="台帳作成システム", layout="centered")
-st.title("🚑 トリアージ台帳 v21")
+    def safe(i, default=""):
+        return items[i].strip() if i < len(items) else default
 
-uploaded_file = st.file_uploader("QRコードのスクリーンショットを選択", type=["png","jpg","jpeg"])
-
-if uploaded_file:
-    img = Image.open(uploaded_file)
-    with st.spinner("QRコードをスキャン中..."):
-        qr = decode(img)
-        if not qr:
-            qr = decode(cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY))
-        if not qr:
-            qr = decode(cv2.detailEnhance(np.array(img), sigma_s=10, sigma_r=0.15))
-
-    if qr:
-        items = decode_qr_raw(qr[0].data.decode("utf-8"))
-        data = parse_ems_qr(items)
-        if data:
-            st.success(f"読込成功: {data['kanji']} 様")
-
-            with st.expander("🔍 QRデータ確認"):
-                labels = {1:"依頼日時",4:"氏名",5:"性別",8:"主訴",9:"経過等",
-                          13:"生年月日",14:"年齢",15:"JCS",19:"BP上",20:"BP下",
-                          21:"HR",22:"RR",23:"BT",24:"SpO2"}
-                for i, v in enumerate(items):
-                    lbl = f"  ← {labels[i]}" if i in labels else ""
-                    st.text(f"[{i:2d}] {v[:80]}{lbl}")
-
-            st.subheader("台帳情報の入力")
-            recorder = st.selectbox("記載者", ["前川","森木","小舘","遠藤"])
-            col1, col2 = st.columns(2)
-            with col1:
-                origin = st.text_input("依頼元（救急隊）", value="中央").replace("救急隊","").strip()
-                history_yn = st.radio("受診歴", ["無","有"], index=0, horizontal=True)
-            with col2:
-                history_dept = st.text_input("受診科名（有の場合）")
-                decision = st.radio("判定", ["応需","不応需"], index=0, horizontal=True)
-            complaint_edit = st.text_input("主訴（編集可）", value=data.get("complaint",""))
-
-            res = {}
-            if decision == "応需":
-                res["init"] = st.selectbox("初期対応した科", ["当直医","救急科","その他"])
-                if res["init"] == "その他":
-                    res["init_other"] = st.text_input("初期対応科名")
-                res["out"] = st.selectbox("最終転帰", ["入院","帰宅","その他"])
-                if res["out"] == "入院":
-                    res["ward"] = st.selectbox("病棟", ["4東","HCU","ICU","その他"])
-                    if res["ward"] == "その他":
-                        res["ward_other"] = st.text_input("病棟名")
-                    res["main"] = st.selectbox("主科", ["臨研","救急科","その他"])
-                    if res["main"] == "その他":
-                        res["main_other"] = st.text_input("主科名")
-            else:
-                reasons = ["1. 緊急性なし","2. ベッド満床","3. 既定の応需不可症例",
-                           "4. 対応可能な医師不在","5. 緊急手術制限中",
-                           "6-A. 医師処置中につき対応困難","6-B. 看護師処置中につき対応困難","7. その他"]
-                res["reason"] = st.selectbox("不応需理由", reasons)
-
-            if st.button("台帳を生成する", type="primary"):
-                with st.spinner("作成中..."):
-                    base = Image.open("template.png").convert("RGB")
-                    d = ImageDraw.Draw(base)
-                    f18 = get_font(18)
-                    f24 = get_font(24)
-                    f28 = get_font(28)
-                    f36 = get_font(36)
-                    f44 = get_font(44)
-
-                    # ===== 記載者（セル中央、大きく）=====
-                    rw = f44.getlength(recorder)
-                    d.text((int((911+1176-rw)/2), 55), recorder, font=f44, fill="black")
-
-                    # ===== 依頼日時（大きいフォント）=====
-                    dt_str = f"{data['month']}/{data['day']}（{data['weekday']}）{data['hour']}:{data['minute']}"
-                    d.text((155, 145), dt_str, font=f36, fill="black")
-
-                    # ===== 依頼元 =====
-                    d.text((690, 148), origin, font=f28, fill="black")
-
-                    # ===== 受診歴 =====
-                    if history_yn == "有":
-                        draw_maru(d, (1100, 165))
-                        if history_dept:
-                            d.text((1130, 150), history_dept.rstrip("科"), font=f24, fill="black")
-                    else:
-                        draw_maru(d, (1270, 165))
-
-                    # ===== 患者名（ふりがなは漢字の上）=====
-                    kanji_text = data["kanji"]
-                    kw = f44.getlength(kanji_text)
-                    kx = int(135 + (408 - kw) / 2)
-                    d.text((kx, 268), kanji_text, font=f44, fill="black")
-                    d.text((kx, 245), data["kana"], font=f18, fill="black")
-
-                    # ===== 生年月日（右寄せ）=====
-                    b = data["birth"]
-                    if len(b) >= 8:
-                        for val, lbl_x in [(b[:4], 1010), (b[4:6], 1145), (b[6:8], 1279)]:
-                            w = f24.getlength(val)
-                            d.text((int(lbl_x - w), 245), val, font=f24, fill="black")
-
-                    # ===== 年齢 =====
-                    if data["age"]:
-                        d.text((755, 308), data["age"], font=f28, fill="black")
-
-                    # ===== 性別 =====
-                    if data["gender"] == "2" or "女" in data["gender"]:
-                        draw_maru(d, (1214, 322), r=18)
-                    else:
-                        draw_maru(d, (1008, 322), r=18)
-
-                    # ===== 主訴 =====
-                    if complaint_edit:
-                        for i, line in enumerate(textwrap.wrap(complaint_edit, width=30)):
-                            d.text((150, 385+i*32), line, font=f28, fill="black")
-
-                    # ===== 経過等（大きいフォント）=====
-                    if data["history"]:
-                        for i, line in enumerate(textwrap.wrap(data["history"], width=18)):
-                            y = 530 + i*32
-                            if y > 1260: break
-                            d.text((150, y), line, font=f28, fill="black")
-
-                    # ===== バイタルサイン =====
-                    vx = 1060
-                    if data["jcs"]:
-                        d.text((1120, 705), data["jcs"], font=f28, fill="black")
-                    if data["rr"]:
-                        d.text((vx, 775), data["rr"], font=f28, fill="black")
-                    if data["hr"]:
-                        d.text((vx, 845), data["hr"], font=f28, fill="black")
-                    if data["bp_s"] and data["bp_d"]:
-                        d.text((vx, 915), f"{data['bp_s']}/{data['bp_d']}", font=f28, fill="black")
-                    if data["spo2"]:
-                        d.text((vx, 978), data["spo2"], font=f28, fill="black")
-                    if data["bt"]:
-                        d.text((vx, 1048), data["bt"], font=f28, fill="black")
-
-                    # ===== 判定 =====
-                    if decision == "応需":
-                        draw_maru(d, (74, 1355), r=26)
-                        if res["init"] == "当直医":
-                            draw_maru(d, (615, 1345), r=27)
-                        elif res["init"] == "救急科":
-                            draw_maru(d, (737, 1345), r=27)
-                        elif res["init"] == "その他":
-                            draw_maru(d, (888, 1345), r=27)
-                            if res.get("init_other"):
-                                d.text((960, 1332), res["init_other"].rstrip("科"), font=f18, fill="black")
-                        if res["out"] == "入院":
-                            draw_maru(d, (400, 1435), r=16)
-                            wp = {"4東":(784,1466),"HCU":(861,1466),"ICU":(943,1466)}
-                            if res.get("ward") in wp:
-                                draw_maru(d, wp[res["ward"]], r=18)
-                            elif res.get("ward") == "その他" and res.get("ward_other"):
-                                d.text((770, 1490), res["ward_other"], font=f18, fill="black")
-                            if res.get("main") == "臨研":
-                                draw_maru(d, (1083, 1445), r=18)
-                            elif res.get("main") == "救急科":
-                                draw_maru(d, (1095, 1480), r=18)
-                            elif res.get("main") == "その他" and res.get("main_other"):
-                                d.text((1095, 1500), res["main_other"].rstrip("科"), font=f18, fill="black")
-                        elif res["out"] == "帰宅":
-                            draw_maru(d, (340, 1461), r=16)
-                    else:
-                        draw_maru(d, (74, 1420), r=26)
-                        rl = ["1","2","3","4","5","6-A","6-B","7"]
-                        ry = [1543, 1573, 1603, 1633, 1663, 1693, 1725, 1785]
-                        rk = res["reason"].split(".")[0].strip()
-                        if rk in rl:
-                            draw_maru(d, (148, ry[rl.index(rk)]), r=16)
-
-                    # ===== 出力 =====
-                    st.image(base, use_container_width=True)
-                    buf = io.BytesIO()
-                    base.save(buf, format="JPEG", quality=95)
-                    st.download_button("📥 台帳を保存", buf.getvalue(), f"triage_{data['kanji']}.jpg", "image/jpeg")
+    # 氏名
+    name_raw = safe(4)
+    if "θ" in name_raw:
+        parts = name_raw.split("θ")
+        kanji = parts[0].strip()
+        kana = parts[1].strip() if len(parts) > 1 else ""
     else:
+        kanji = name_raw
+        kana = ""
+
+    # 依頼日時
+    dt_raw = safe(1)
+    try:
+        dt = datetime.strptime(dt_raw[:16], "%Y/%m/%d %H:%M")
+        weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+        dt_str = dt.strftime(f"%-m/%-d（{weekdays[dt.weekday()]}）%H:%M")
+    except Exception:
+        dt_str = dt_raw
+
+    # 生年月日
+    birth_raw = safe(13)
+    if len(birth_raw) == 8 and birth_raw.isdigit():
+        birth_y = birth_raw[:4]
+        birth_m = birth_raw[4:6].lstrip("0")
+        birth_d = birth_raw[6:8].lstrip("0")
+    else:
+        birth_y = birth_m = birth_d = ""
+
+    # 主訴の自動抽出
+    complaint = safe(8)
+    if not complaint:
+        for idx in [8, 10, 11]:
+            v = safe(idx)
+            if v and len(v) <= 30 and not v.isdigit():
+                complaint = v
+                break
+    if not complaint:
+        history_text = safe(9)
+        for sep in ["。", "、", "\n"]:
+            if sep in history_text:
+                complaint = history_text.split(sep)[0]
+                break
+
+    return {
+        "kanji": kanji,
+        "kana": kana,
+        "dt_str": dt_str,
+        "birth_y": birth_y,
+        "birth_m": birth_m,
+        "birth_d": birth_d,
+        "age": safe(14),
+        "gender": safe(5),
+        "complaint": complaint,
+        "history": safe(9),
+        "jcs": safe(15),
+        "bp_s": safe(19),
+        "bp_d": safe(20),
+        "hr": safe(21),
+        "rr": safe(22),
+        "bt": safe(23),
+        "spo2": safe(24),
+        "items": items,
+    }
+
+# ===== テンプレート描画 =====
+def render_triage(data, recorder, origin, history_yn, history_dept, decision, res):
+    base = Image.open("template.png").convert("RGB")
+    d = ImageDraw.Draw(base)
+
+    f18 = get_font(18)
+    f24 = get_font(24)
+    f28 = get_font(28)
+    f36 = get_font(36)
+    f44 = get_font(44)
+
+    # ===== 記載者（V=911-1176, Y=55, 中央寄せ） =====
+    cell_w = 1176 - 911
+    tw = getlength(recorder, f44)
+    kx_rec = 911 + (cell_w - tw) // 2
+    d.text((kx_rec, 55), recorder, font=f44, fill="black")
+
+    # ===== 依頼日時 =====
+    d.text((155, 145), data["dt_str"], font=f36, fill="black")
+
+    # ===== 依頼元（救急隊名, V=676-911） =====
+    origin_clean = origin.replace("救急隊", "").strip()
+    d.text((690, 148), origin_clean, font=f28, fill="black")
+
+    # ===== 受診歴 =====
+    if history_yn == "有":
+        draw_maru(d, (1100, 165), r=22)
+        dept = history_dept.rstrip("科")
+        d.text((1130, 150), dept, font=f24, fill="black")
+    else:
+        draw_maru(d, (1270, 165), r=22)
+
+    # ===== 患者氏名（V=135-543, 中央寄せ） =====
+    cell_w_name = 543 - 135
+    kw = getlength(data["kanji"], f44)
+    kx = 135 + (cell_w_name - kw) // 2
+    d.text((kx, 245), data["kana"], font=f18, fill="black")
+    d.text((kx, 268), data["kanji"], font=f44, fill="black")
+
+    # ===== 生年月日（右寄せ） =====
+    for val, label_x in [(data["birth_y"], 1010), (data["birth_m"], 1145), (data["birth_d"], 1279)]:
+        if val:
+            tw = getlength(val, f24)
+            d.text((label_x - tw - 4, 290), val, font=f24, fill="black")
+
+    # ===== 年齢 =====
+    d.text((755, 308), data["age"], font=f28, fill="black")
+
+    # ===== 性別 =====
+    if data["gender"] == "1":
+        draw_maru(d, (1008, 322), r=18)
+    elif data["gender"] == "2":
+        draw_maru(d, (1214, 322), r=18)
+
+    # ===== 主訴（折返し幅30文字） =====
+    complaint_lines = []
+    line = ""
+    for ch in data["complaint"]:
+        line += ch
+        if len(line) >= 30:
+            complaint_lines.append(line)
+            line = ""
+    if line:
+        complaint_lines.append(line)
+    for i, ln in enumerate(complaint_lines):
+        d.text((150, 385 + i * 32), ln, font=f28, fill="black")
+
+    # ===== 経過等（折返し幅18文字, Y>1260で打切り） =====
+    history_lines = []
+    line = ""
+    for ch in data["history"]:
+        line += ch
+        if len(line) >= 18:
+            history_lines.append(line)
+            line = ""
+    if line:
+        history_lines.append(line)
+    for i, ln in enumerate(history_lines):
+        y = 530 + i * 32
+        if y > 1260:
+            break
+        d.text((150, y), ln, font=f28, fill="black")
+
+    # ===== バイタルサイン =====
+    d.text((1120, 705), data["jcs"], font=f28, fill="black")
+    d.text((1060, 775), data["rr"], font=f28, fill="black")
+    d.text((1060, 845), data["hr"], font=f28, fill="black")
+    d.text((1060, 915), f"{data['bp_s']}/{data['bp_d']}", font=f28, fill="black")
+    d.text((1060, 978), data["spo2"], font=f28, fill="black")
+    d.text((1060, 1048), data["bt"], font=f28, fill="black")
+
+    # ===== 判定 =====
+    if decision == "応需":
+        draw_maru(d, (74, 1355), r=26)
+    else:
+        draw_maru(d, (74, 1420), r=26)
+
+    if decision == "応需":
+        # 初期対応した科
+        init_map = {"当直医": (615, 1345), "救急科": (737, 1345), "その他": (888, 1345)}
+        if res.get("init") in init_map:
+            draw_maru(d, init_map[res["init"]], r=27)
+        if res.get("init") == "その他" and res.get("init_other"):
+            d.text((960, 1332), res["init_other"].rstrip("科"), font=f18, fill="black")
+
+        # 最終転帰
+        if res.get("out") == "入院":
+            draw_maru(d, (400, 1435), r=16)
+        elif res.get("out") == "帰宅":
+            draw_maru(d, (340, 1461), r=16)
+
+        # 病棟
+        ward_map = {"4東": (784, 1466), "HCU": (861, 1466), "ICU": (943, 1466)}
+        if res.get("ward") in ward_map:
+            draw_maru(d, ward_map[res["ward"]], r=18)
+        elif res.get("ward") == "その他" and res.get("ward_other"):
+            d.text((770, 1490), res["ward_other"], font=f18, fill="black")
+
+        # 主科
+        main_map = {"臨研": (1083, 1445), "救急科": (1095, 1480)}
+        if res.get("main") in main_map:
+            draw_maru(d, main_map[res["main"]], r=18)
+        elif res.get("main") == "その他":
+            draw_maru(d, (1095, 1480), r=18)
+            if res.get("main_other"):
+                d.text((1095, 1500), res["main_other"].rstrip("科"), font=f18, fill="black")
+    else:
+        # 不応需理由
+        reason_labels = [
+            "1. 緊急性なし",
+            "2. ベッド満床",
+            "3. 既定の応需不可",
+            "4. 対応可能な医師不在",
+            "5. 緊急手術制限中",
+            "6-A. 医師処置中",
+            "6-B. 看護師処置中",
+            "7. その他",
+        ]
+        reason_y = [1543, 1573, 1603, 1633, 1663, 1693, 1725, 1785]
+        rk = res.get("reason", "")
+        for label, ry in zip(reason_labels, reason_y):
+            if rk and rk.split(".")[0].strip() == label.split(".")[0].strip():
+                draw_maru(d, (148, ry), r=16)
+                break
+
+    return base
+
+# ===== メインUI =====
+uploaded = st.file_uploader("📷 スクリーンショットをアップロード", type=["png", "jpg", "jpeg"])
+
+if uploaded:
+    raw = decode_qr(uploaded)
+    if raw is None:
         st.error("QRコードが見つかりません。画像を拡大するか、明るい場所で撮り直してください。")
+    else:
+        data = parse_qr(raw)
+
+        with st.expander("🔍 QRデータ確認（デバッグ用）", expanded=False):
+            for i, v in enumerate(data["items"]):
+                label = ""
+                if i == 1: label = "← 依頼日時"
+                elif i == 4: label = "← 氏名"
+                elif i == 5: label = "← 性別"
+                elif i == 8: label = "← 主訴"
+                elif i == 9: label = "← 経過等"
+                elif i == 13: label = "← 生年月日"
+                elif i == 14: label = "← 年齢"
+                elif i == 15: label = "← JCS"
+                elif i == 19: label = "← BP(上)"
+                elif i == 20: label = "← BP(下)"
+                elif i == 21: label = "← HR"
+                elif i == 22: label = "← RR"
+                elif i == 23: label = "← BT"
+                elif i == 24: label = "← SpO2"
+                st.text(f"[{i:2d}] {v[:80]}  {label}")
+
+        st.subheader("台帳情報の入力")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
+            origin = st.text_input("依頼元（救急隊）", value="中央")
+            history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
+        with col2:
+            history_dept = ""
+            if history_yn == "有":
+                history_dept = st.text_input("受診科名")
+            decision = st.radio("判定", ["応需", "不応需"], horizontal=True)
+
+        complaint_edit = st.text_input("主訴（編集可）", value=data["complaint"])
+        data["complaint"] = complaint_edit
+
+        res = {}
+        if decision == "応需":
+            res["init"] = st.selectbox("初期対応した科", ["当直医", "救急科", "その他"])
+            if res["init"] == "その他":
+                res["init_other"] = st.text_input("初期対応科名")
+            res["out"] = st.selectbox("最終転帰", ["入院", "帰宅", "その他"])
+            if res["out"] == "入院":
+                res["ward"] = st.selectbox("病棟", ["4東", "HCU", "ICU", "その他"])
+                if res["ward"] == "その他":
+                    res["ward_other"] = st.text_input("病棟名")
+                res["main"] = st.selectbox("主科", ["臨研", "救急科", "その他"])
+                if res["main"] == "その他":
+                    res["main_other"] = st.text_input("主科名")
+        else:
+            res["reason"] = st.selectbox("不応需理由", [
+                "1. 緊急性なし",
+                "2. ベッド満床",
+                "3. 既定の応需不可",
+                "4. 対応可能な医師不在",
+                "5. 緊急手術制限中",
+                "6-A. 医師処置中",
+                "6-B. 看護師処置中",
+                "7. その他",
+            ])
+
+        if st.button("🖨️ 台帳を生成", type="primary"):
+            result = render_triage(data, recorder, origin, history_yn, history_dept, decision, res)
+            st.image(result, use_container_width=True)
+            buf = io.BytesIO()
+            result.save(buf, format="JPEG", quality=95)
+            st.download_button(
+                "📥 台帳を保存",
+                buf.getvalue(),
+                f"triage_{data['kanji']}.jpg",
+                "image/jpeg"
+            )
