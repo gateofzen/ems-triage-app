@@ -38,10 +38,24 @@ def draw_maru(draw, center, r=22):
 
 # ===== QRデコード =====
 def decode_qr(uploaded):
-    file_bytes = np.frombuffer(uploaded.read(), np.uint8)
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    if img is None:
-        return None
+    # PILで読み込み（HEIC以外のカメラ形式・大容量JPEGに対応）
+    try:
+        pil_img = Image.open(uploaded).convert("RGB")
+        # 大きすぎる画像（スマホカメラ等）は縮小してメモリ節約・速度向上
+        max_size = 1920
+        w, h = pil_img.size
+        if max(w, h) > max_size:
+            scale = max_size / max(w, h)
+            pil_img = pil_img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        img_array = np.array(pil_img)
+        img = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    except Exception:
+        # PILが失敗した場合はOpenCVで直接読み込み
+        uploaded.seek(0)
+        file_bytes = np.frombuffer(uploaded.read(), np.uint8)
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        if img is None:
+            return None
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -52,26 +66,20 @@ def decode_qr(uploaded):
         return None
 
     def make_variants(g):
-        """1枚のグレー画像から複数の前処理バリアントを生成"""
         variants = [g]
-        # CLAHE（ローカルコントラスト強調）
         clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
         variants.append(clahe.apply(g))
-        # 大津の二値化
         _, otsu = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         variants.append(otsu)
-        # 適応的二値化（カメラ撮影で照明ムラがある場合に有効）
         ada = cv2.adaptiveThreshold(g, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                     cv2.THRESH_BINARY, 11, 2)
         variants.append(ada)
         ada2 = cv2.adaptiveThreshold(g, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
                                      cv2.THRESH_BINARY, 15, 5)
         variants.append(ada2)
-        # シャープ化（ピントが甘い場合）
         kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
         sharp = cv2.filter2D(g, -1, kernel)
         variants.append(sharp)
-        # ガウシアンブラー後二値化（ノイズ除去）
         blur = cv2.GaussianBlur(g, (5, 5), 0)
         _, blur_otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         variants.append(blur_otsu)
@@ -79,15 +87,13 @@ def decode_qr(uploaded):
 
     h, w = gray.shape
 
-    # スケール × 前処理 × 回転 を総当たり
-    for scale in [1.0, 0.75, 0.5, 1.25, 1.5, 2.0]:
+    for scale in [1.0, 0.75, 1.5, 0.5, 2.0]:
         rw, rh = int(w * scale), int(h * scale)
         resized = cv2.resize(gray, (rw, rh))
         for variant in make_variants(resized):
             r = try_decode(variant)
             if r:
                 return r
-            # 90°回転も試す（カメラの向きが縦横逆の場合）
             for angle in [90, 180, 270]:
                 M = cv2.getRotationMatrix2D((rw/2, rh/2), angle, 1)
                 rotated = cv2.warpAffine(variant, M, (rw, rh))
@@ -95,19 +101,17 @@ def decode_qr(uploaded):
                 if r:
                     return r
 
-    # QRコード領域を自動検出してクロップ再試行
     try:
         blurred = cv2.GaussianBlur(gray, (9, 9), 0)
         _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        # 面積が大きい輪郭上位3つをQR候補として試す
         contours = sorted(contours, key=cv2.contourArea, reverse=True)[:3]
         for cnt in contours:
             x, y, cw, ch = cv2.boundingRect(cnt)
-            if cw > w * 0.1 and ch > h * 0.1:  # 画像の10%以上の領域
+            if cw > w * 0.1 and ch > h * 0.1:
                 pad = 20
-                x1 = max(0, x - pad); y1 = max(0, y - pad)
-                x2 = min(w, x + cw + pad); y2 = min(h, y + ch + pad)
+                x1 = max(0, x-pad); y1 = max(0, y-pad)
+                x2 = min(w, x+cw+pad); y2 = min(h, y+ch+pad)
                 crop = gray[y1:y2, x1:x2]
                 crop_up = cv2.resize(crop, (crop.shape[1]*2, crop.shape[0]*2))
                 for variant in make_variants(crop_up):
@@ -394,13 +398,31 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     return base
 
 # ===== メインUI =====
-uploaded = st.file_uploader("📷 スクリーンショットをアップロード", type=["png", "jpg", "jpeg"])
+uploaded = st.file_uploader(
+    "📷 画像を選択（スクリーンショットまたはカメラ撮影）",
+    type=["png", "jpg", "jpeg"],
+    help="カメラ撮影時：OSの「QRコード認識できません」メッセージは無視してそのまま撮影→アップロードしてください"
+)
 
 if uploaded:
-    raw = decode_qr(uploaded)
-    if raw is None:
-        st.error("QRコードが見つかりません。画像を拡大するか、明るい場所で撮り直してください。")
-    else:
+    # カメラ撮影後に確実に処理を開始するための明示ボタン
+    st.info("📌 画像をアップロードしました。下のボタンを押してQRコードを読み取ってください。")
+    do_read = st.button("🔍 QRコードを読み取る", type="primary", use_container_width=True)
+
+    # セッション状態でデータを保持（ボタン押下後に他UIを操作しても消えない）
+    if do_read:
+        with st.spinner("QRコードを読み取り中..."):
+            raw = decode_qr(uploaded)
+        if raw is None:
+            st.error("❌ QRコードが認識できませんでした。\n\n**対処法：**\n- QRコードを画面の中央に大きく写して再撮影\n- 明るい場所でピントを合わせてから撮影\n- スクリーンショット画像を使用")
+            st.session_state.pop("triage_raw", None)
+        else:
+            st.session_state["triage_raw"] = raw
+            st.success("✅ QRコード読み取り成功！")
+
+    raw = st.session_state.get("triage_raw")
+
+    if raw:
         data = parse_qr(raw)
 
         with st.expander("🔍 QRデータ確認（デバッグ用）", expanded=False):
