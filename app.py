@@ -396,8 +396,10 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
         elif res.get("ward") == "6東":
             draw_maru(d, (784, 1490), r=18)
             d.text((806, 1480), "6東", font=f18, fill="black")
-        elif res.get("ward") == "その他" and res.get("ward_other"):
-            d.text((840, 1480), res["ward_other"], font=f18, fill="black")
+        elif res.get("ward") == "その他":
+            draw_maru(d, (784, 1490), r=18)
+            if res.get("ward_other"):
+                d.text((806, 1480), res["ward_other"], font=f18, fill="black")
 
         # 主科
         main_map = {"臨研": (1083, 1445), "救急科": (1095, 1480)}
