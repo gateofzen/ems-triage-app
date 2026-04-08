@@ -506,15 +506,26 @@ if records:
         del_url  = "?" + urllib.parse.urlencode({"action":"del", "key":key})
         rows_html += (
             f'<tr>'
-            f'<td style="white-space:nowrap;font-size:13px;padding:4px 3px"><b>{idx}.{name}</b></td>'
-            f'<td style="white-space:nowrap;font-size:12px;padding:4px 2px;color:#666">{dt_str}</td>'
-            f'<td style="white-space:nowrap;font-size:12px;padding:4px 2px;color:#666">{outcome_str}</td>'
+            f'<td class="nm" style="white-space:nowrap;font-size:13px;padding:4px 3px"><b>{idx}.{name}</b></td>'
+            f'<td class="dt" style="white-space:nowrap;font-size:12px;padding:4px 2px">{dt_str}</td>'
+            f'<td class="dt" style="white-space:nowrap;font-size:12px;padding:4px 2px">{outcome_str}</td>'
             f'<td style="padding:4px 2px"><a href="{edit_url}" style="background:#1a7340;color:white;padding:3px 8px;border-radius:4px;font-size:12px;text-decoration:none;white-space:nowrap">更新</a></td>'
             f'<td style="padding:4px 2px"><a href="{del_url}" style="background:#a33;color:white;padding:3px 8px;border-radius:4px;font-size:12px;text-decoration:none;white-space:nowrap">削除</a></td>'
             f'</tr>'
         )
-    html = f'<table style="width:100%;border-collapse:collapse">{rows_html}</table>'
-    components.html(html, height=len(records)*36+10, scrolling=False)
+    html = f'''
+<style>
+  .pt td {{ border:none; }}
+  .pt .nm {{ color: #111; }}
+  .pt .dt {{ color: #444; }}
+  @media (prefers-color-scheme: dark) {{
+    .pt .nm {{ color: #fff; }}
+    .pt .dt {{ color: #ccc; }}
+  }}
+</style>
+<table class="pt" style="width:100%;border-collapse:collapse">{rows_html}</table>
+'''
+    components.html(html, height=len(records)*36+20, scrolling=False)
     st.divider()
 
 # ===== 転帰更新モード =====
