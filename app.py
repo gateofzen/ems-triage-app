@@ -477,27 +477,47 @@ if "editing_key" not in st.session_state:
 
 # ===== 保存済み患者一覧 =====
 records = st.session_state.triage_records
+
+# クエリパラメータでボタンアクション処理
+params = st.query_params
+if "action" in params and "key" in params:
+    action = params["action"]
+    target = params["key"]
+    if action == "edit" and target in records:
+        st.session_state.editing_key = target
+    elif action == "del" and target in records:
+        del st.session_state.triage_records[target]
+        save_records(st.session_state.triage_records)
+        if st.session_state.editing_key == target:
+            st.session_state.editing_key = None
+    st.query_params.clear()
+    st.rerun()
+
 if records:
     st.subheader("📋 保存済み患者")
+    # 1行HTMLテーブルで表示
+    rows_html = ""
     for idx, (key, rec) in enumerate(list(records.items()), start=1):
         outcome_str = rec.get("res", {}).get("out", "未記入")
-        shift_str = rec.get("shift", "")
         dt_str = rec.get("data", {}).get("dt_str", "")
-        # 更新・削除ボタン（通常のStreamlitボタン、key判定用）
-        col_info, col_b, col_c = st.columns([6, 1, 1])
-        with col_info:
-            st.markdown(f"**{idx}. {key}** {dt_str}（{shift_str}）転帰:{outcome_str}")
-        with col_b:
-            if st.button("更新", key=f"edit_{key}"):
-                st.session_state.editing_key = key
-                st.rerun()
-        with col_c:
-            if st.button("削除", key=f"del_{key}"):
-                del st.session_state.triage_records[key]
-                save_records(st.session_state.triage_records)
-                if st.session_state.editing_key == key:
-                    st.session_state.editing_key = None
-                st.rerun()
+        # 名前のスペースを除去
+        name = key.replace("　", "").replace(" ", "")
+        import urllib.parse
+        edit_url = "?" + urllib.parse.urlencode({"action":"edit","key":key})
+        del_url  = "?" + urllib.parse.urlencode({"action":"del", "key":key})
+        rows_html += f"""
+        <tr>
+          <td style="white-space:nowrap;padding:4px 3px;font-size:13px"><b>{idx}.{name}</b></td>
+          <td style="white-space:nowrap;padding:4px 2px;font-size:12px;color:#aaa">{dt_str}</td>
+          <td style="white-space:nowrap;padding:4px 2px;font-size:12px;color:#aaa">{outcome_str}</td>
+          <td style="padding:4px 2px"><a href="{edit_url}" style="background:#1a6;color:white;padding:3px 8px;border-radius:4px;font-size:12px;text-decoration:none">更新</a></td>
+          <td style="padding:4px 2px"><a href="{del_url}"  style="background:#a33;color:white;padding:3px 8px;border-radius:4px;font-size:12px;text-decoration:none">削除</a></td>
+        </tr>"""
+    st.markdown(f"""
+<table style="width:100%;border-collapse:collapse">
+{rows_html}
+</table>
+""", unsafe_allow_html=True)
     st.divider()
 
 # ===== 転帰更新モード =====
