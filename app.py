@@ -530,6 +530,38 @@ if records:
                     st.session_state.editing_key = None
                 st.rerun()
 
+    # 台帳一括生成ボタン
+    if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
+        all_records = st.session_state.triage_records
+        if all_records:
+            for idx, (key, rec) in enumerate(all_records.items(), start=1):
+                data = rec["data"]
+                shift = rec.get("shift","夜勤")
+                recorder = rec.get("recorder","前川")
+                origin = rec.get("origin","中央")
+                history_yn = rec.get("history_yn","無")
+                history_dept = rec.get("history_dept","")
+                decision = rec.get("decision","応需")
+                res = rec.get("res",{})
+                case_no = rec.get("case_no",idx)
+                free_note = rec.get("free_note","")
+                kana = data.get("kana","").strip()
+                display = kana if kana else key
+                st.write(f"**{idx}. {display}**")
+                result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
+                                       decision, res, case_no, free_note)
+                st.image(result, use_container_width=True)
+                buf = io.BytesIO()
+                result.save(buf, format="JPEG", quality=95)
+                st.download_button(
+                    f"📥 {display} の台帳を保存",
+                    buf.getvalue(),
+                    f"triage_{data.get('kanji', display)}.jpg",
+                    "image/jpeg",
+                    key=f"bulk_dl_{idx}"
+                )
+
+    st.divider()
     # 一括削除ボタン（確認あり）
     if "confirm_clear" not in st.session_state:
         st.session_state.confirm_clear = False
@@ -679,8 +711,8 @@ if st.session_state.manual_mode:
         m_age   = st.number_input("年齢（才）", min_value=0, max_value=120, value=0, step=1)
         m_gender = st.radio("性別", ["1（男）","2（女）","未記載"], horizontal=True)
     with mc2:
-        m_date = st.date_input("受付日", value=now_jst.date())
-        m_time = st.time_input("受付時刻", value=now_jst.replace(minute=(now_jst.minute//5)*5, second=0, microsecond=0).time())
+        m_date = st.date_input("受付日", value=now_jst.date(), key="m_date")
+        m_time = st.time_input("受付時刻", value=now_jst.replace(minute=(now_jst.minute//5)*5, second=0, microsecond=0).time(), key="m_time")
         m_birth_y = st.number_input("生年（西暦）", min_value=1900, max_value=2026, value=1950, step=1)
         mc_b1, mc_b2 = st.columns(2)
         with mc_b1: m_birth_m = st.number_input("月", min_value=1, max_value=12, value=1, step=1)
