@@ -211,24 +211,17 @@ def parse_qr(raw):
                 complaint = history_text.split(sep)[0]
                 break
 
-    # 救急隊名抽出
-    # 方針: "救急隊"を含む → そのまま。ない場合はインデックス[2][3]の短いテキストを候補
-    team_name = ""
-    # まず "救急隊" を明示的に含む項目を探す
-    for idx in range(len(items)):
-        v = safe(idx)
-        if "救急隊" in v:
-            team_name = v.replace("救急隊", "").strip()
-            break
-    # 見つからない場合: インデックス[2][3]の短い非数字テキスト（"科"を除く）
+    # 救急隊名: インデックス[29]が確定（実データ検証済み）
+    # "大通５" → "大通" のように末尾の数字を除去
+    import re
+    team_raw = safe(29)
+    team_name = re.sub(r'\d+$', '', team_raw).strip()
+    # [29]が空の場合は "救急隊" を含む項目を全体から検索
     if not team_name:
-        for idx in [2, 3, 6, 7]:
+        for idx in range(len(items)):
             v = safe(idx)
-            v_clean = v.replace("救急隊", "").strip()
-            if (2 <= len(v_clean) <= 6 and not v_clean.isdigit()
-                    and "科" not in v_clean and "診療" not in v_clean
-                    and "/" not in v_clean and ":" not in v_clean):
-                team_name = v_clean
+            if "救急隊" in v:
+                team_name = v.replace("救急隊", "").strip()
                 break
 
     return {
