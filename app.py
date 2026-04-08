@@ -44,7 +44,6 @@ def save_records(records):
             json.dump(records, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
-st.title("🚑 トリアージ台帳自動作成")
 
 # ===== フォントパス =====
 FONT_CANDIDATES = [
@@ -212,23 +211,25 @@ def parse_qr(raw):
                 complaint = history_text.split(sep)[0]
                 break
 
-    # 救急隊名（インデックス[2]または[3]から抽出 - "救急隊"を含む項目を検索）
+    # 救急隊名抽出
+    # 方針: "救急隊"を含む → そのまま。ない場合はインデックス[2][3]の短いテキストを候補
     team_name = ""
-    for idx in [2, 3, 6, 7, 0]:
+    # まず "救急隊" を明示的に含む項目を探す
+    for idx in range(len(items)):
         v = safe(idx)
-        if "救急" in v or "隊" in v:
-            # "中央救急隊" → "中央" などに整形
-            team_name = v.replace("救急隊", "").replace("救急", "").strip()
+        if "救急隊" in v:
+            team_name = v.replace("救急隊", "").strip()
             break
-    # 見つからない場合は短い非数字テキストを候補に
+    # 見つからない場合: インデックス[2][3]の短い非数字テキスト（"科"を除く）
     if not team_name:
-        for idx in range(len(items)):
+        for idx in [2, 3, 6, 7]:
             v = safe(idx)
-            if 2 <= len(v) <= 6 and not v.isdigit() and idx not in [4, 5, 8, 9, 13, 14, 15]:
-                # 漢字のみで短いテキスト
-                if all('\u4e00' <= c <= '\u9fff' or '\u3000' <= c <= '\u30ff' for c in v if c.strip()):
-                    team_name = v.replace("救急隊", "").strip()
-                    break
+            v_clean = v.replace("救急隊", "").strip()
+            if (2 <= len(v_clean) <= 6 and not v_clean.isdigit()
+                    and "科" not in v_clean and "診療" not in v_clean
+                    and "/" not in v_clean and ":" not in v_clean):
+                team_name = v_clean
+                break
 
     return {
         "kanji": kanji,
@@ -578,7 +579,7 @@ if uploaded:
         st.info(f"🕐 受付時刻: {data['dt_str']}　→ 勤務帯: **{shift}**（8:30-16:30=日勤、それ以外=夜勤）")
 
         with st.expander("🔍 QRデータ確認（デバッグ用）", expanded=False):
-            st.write(f"**救急隊名候補:** `{data['team_name']}`")
+            st.write(f"**救急隊名候補（自動）:** `{data['team_name']}` ← 正しくない場合は下のリストから正しいインデックスを確認してください")
             for i, v in enumerate(data["items"]):
                 label = ""
                 if i == 1: label = "← 依頼日時"
