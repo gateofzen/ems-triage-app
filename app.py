@@ -549,15 +549,15 @@ uploaded = st.file_uploader(
 )
 
 if uploaded:
-    st.info("📌 QRコードを読み取り中...")
-    with st.spinner("読み取り中..."):
-        raw = decode_qr(uploaded)
-    if raw is None:
-        st.error("❌ QRコードが認識できませんでした。\n\n**対処法：**\n- QRコードを画面の中央に大きく写して再撮影\n- 明るい場所でピントを合わせてから撮影\n- スクリーンショット画像を使用")
-        st.session_state.triage_raw = None
-    else:
-        st.session_state.triage_raw = raw
-        st.success("✅ QRコード読み取り成功！")
+    # まだ読み取っていない場合のみデコード実行
+    if st.session_state.triage_raw is None:
+        with st.spinner("QRコードを読み取り中..."):
+            raw = decode_qr(uploaded)
+        if raw is None:
+            st.error("❌ QRコードが認識できませんでした。\n\n**対処法：**\n- QRコードを画面の中央に大きく写して再撮影\n- 明るい場所でピントを合わせてから撮影\n- スクリーンショット画像を使用")
+        else:
+            st.session_state.triage_raw = raw
+            st.success("✅ QRコード読み取り成功！")
 
     raw = st.session_state.triage_raw
 
