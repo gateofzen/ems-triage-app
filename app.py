@@ -469,14 +469,17 @@ if "editing_key" not in st.session_state:
 records = st.session_state.triage_records
 if records:
     st.subheader("📋 保存済み患者")
-    for key, rec in list(records.items()):
-        col_a, col_b, col_c = st.columns([4, 1, 1])
+    for idx, (key, rec) in enumerate(list(records.items()), start=1):
         outcome_str = rec.get("res", {}).get("out", "未記入")
         shift_str = rec.get("shift", "")
-        with col_a:
-            st.write(f"**{key}**　{rec['data']['dt_str']}（{shift_str}）　転帰: {outcome_str}")
+        dt_str = rec.get("data", {}).get("dt_str", "")
+        col_no, col_info, col_b, col_c = st.columns([0.5, 5, 1, 1])
+        with col_no:
+            st.markdown(f"**{idx}**")
+        with col_info:
+            st.write(f"**{key}**　{dt_str}（{shift_str}）　転帰: {outcome_str}")
         with col_b:
-            if st.button("転帰更新", key=f"edit_{key}"):
+            if st.button("更新", key=f"edit_{key}"):
                 st.session_state.editing_key = key
                 st.rerun()
         with col_c:
