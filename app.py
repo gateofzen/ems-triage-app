@@ -586,66 +586,111 @@ if records:
 
     st.divider()
 
-# ===== 転帰更新モード =====
+# ===== 編集モード =====
 editing_key = st.session_state.editing_key
 if editing_key and editing_key in records:
     rec = records[editing_key]
     data = rec["data"]
     kana = data.get("kana","").strip()
     display = kana if kana else editing_key
-    st.subheader(f"✏️ 転帰更新：{display}")
+    st.subheader(f"✏️ 編集：{display}")
     res = dict(rec.get("res", {}))
-    case_no = rec.get("case_no", 1)
-    case_no = st.selectbox("No.", list(range(1, 16)),
-                           index=int(case_no)-1 if 1 <= int(case_no) <= 15 else 0)
-    shift = rec.get("shift", "日勤")
-    recorder = rec.get("recorder", "前川")
-    origin = rec.get("origin", "中央")
-    history_yn = rec.get("history_yn", "無")
-    history_dept = rec.get("history_dept", "")
-    free_note = rec.get("free_note", "")
 
+    # 基本情報
+    st.markdown("**基本情報**")
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        case_no = st.selectbox("No.", list(range(1,16)),
+                               index=int(rec.get("case_no",1))-1, key="ed_case_no")
+        e_kanji = st.text_input("患者氏名（漢字）", value=data.get("kanji",""), key="ed_kanji")
+        e_kana  = st.text_input("患者氏名（カナ）",  value=data.get("kana",""),  key="ed_kana")
+        e_age   = st.text_input("年齢",  value=data.get("age",""),  key="ed_age")
+        gender_opts = ["1（男）","2（女）","未記載"]
+        g_cur = "1（男）" if data.get("gender")=="1" else ("2（女）" if data.get("gender")=="2" else "未記載")
+        e_gender_sel = st.radio("性別", gender_opts, index=gender_opts.index(g_cur), horizontal=True, key="ed_gender")
+    with ec2:
+        recorders = ["前川", "森木", "小舘", "遠藤"]
+        rec_idx = recorders.index(rec.get("recorder","前川")) if rec.get("recorder") in recorders else 0
+        e_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="ed_recorder")
+        RESCUE_TEAMS_E = ["","中央","大通","桑園","山鼻","北","篠路","新光","東","栄","東苗穂",
+            "白石","菊水","厚別","厚別西","豊平","西岡","平岸","清田","南","定山渓",
+            "西","前田","西野","手稲","石山","あいの里","北野","警防","豊水","幌西",
+            "藤野","八軒","北郷","札苗","苗穂","北エルム","東モエレ","その他（直接入力）"]
+        _orig = rec.get("origin","")
+        _eidx = RESCUE_TEAMS_E.index(_orig) if _orig in RESCUE_TEAMS_E else len(RESCUE_TEAMS_E)-1
+        e_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_E, index=_eidx, key="ed_team")
+        if e_team_sel == "その他（直接入力）":
+            e_origin = st.text_input("救急隊名", value=_orig if _orig not in RESCUE_TEAMS_E else "", key="ed_team_other")
+        else:
+            e_origin = e_team_sel
+        e_history_yn = st.radio("受診歴", ["無","有"],
+                                index=0 if rec.get("history_yn","無")=="無" else 1,
+                                horizontal=True, key="ed_hist_yn")
+        e_history_dept = ""
+        if e_history_yn == "有":
+            e_history_dept = st.text_input("受診科名", value=rec.get("history_dept",""), key="ed_hist_dept")
+
+    e_complaint = st.text_input("主訴", value=data.get("complaint",""), key="ed_complaint")
+
+    # バイタル
+    st.markdown("**バイタルサイン**")
+    ev1,ev2,ev3,ev4,ev5,ev6 = st.columns(6)
+    with ev1: e_jcs  = st.text_input("JCS",  value=data.get("jcs",""),  key="ed_jcs")
+    with ev2: e_bps  = st.text_input("BP上",  value=data.get("bp_s",""), key="ed_bps")
+    with ev3: e_bpd  = st.text_input("BP下",  value=data.get("bp_d",""), key="ed_bpd")
+    with ev4: e_hr   = st.text_input("HR",   value=data.get("hr",""),   key="ed_hr")
+    with ev5: e_rr   = st.text_input("RR",   value=data.get("rr",""),   key="ed_rr")
+    with ev6: e_spo2 = st.text_input("SpO2", value=data.get("spo2",""), key="ed_spo2")
+    e_bt = st.text_input("体温（BT）", value=data.get("bt",""), key="ed_bt")
+
+    shift = rec.get("shift","日勤")
     st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**")
-    # 患者情報表示
-    kanji = data.get("kanji","")
-    birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
-    dob = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else ""
-    age = data.get("age","")
-    age_str = f"{age}歳" if age else ""
-    info_parts = [p for p in [kanji, dob, age_str] if p]
-    if info_parts:
-        st.markdown(f"**患者:** {'　'.join(info_parts)}")
-    decision = st.radio("判定", ["応需", "不応需"], horizontal=True,
-                        index=0 if res.get("decision","応需")=="応需" else 1)
-    if decision == "応需":
-        init_opts = ["当直医", "救急科", "その他"]
-        res["init"] = st.selectbox("初期対応した科", init_opts,
-                                   index=init_opts.index(res["init"]) if res.get("init") in init_opts else 0)
-        if res["init"] == "その他":
-            res["init_other"] = st.text_input("初期対応科名", value=res.get("init_other",""))
-        out_opts = ["入院", "帰宅", "その他"]
-        cur_out = res.get("out","") if res.get("out") in out_opts else "入院"
-        res["out"] = st.selectbox("最終転帰", out_opts, index=out_opts.index(cur_out))
-        if res["out"] == "入院":
-            ward_opts = ["4東", "6東", "HCU", "ICU", "その他"]
-            cur_ward = res.get("ward","") if res.get("ward") in ward_opts else "4東"
-            res["ward"] = st.selectbox("病棟", ward_opts, index=ward_opts.index(cur_ward))
-            if res["ward"] == "その他":
-                res["ward_other"] = st.text_input("病棟名", value=res.get("ward_other",""))
-            main_opts = ["臨研", "救急科", "その他"]
-            cur_main = res.get("main","") if res.get("main") in main_opts else "臨研"
-            res["main"] = st.selectbox("主科", main_opts, index=main_opts.index(cur_main))
-            if res["main"] == "その他":
-                res["main_other"] = st.text_input("主科名", value=res.get("main_other",""))
-    free_note = st.text_area("自由記載", value=free_note, height=80)
+    free_note = st.text_area("自由記載", value=rec.get("free_note",""), height=80, key="ed_free")
 
+    # 転帰
+    st.markdown("**転帰**")
+    decision = st.radio("判定", ["応需","不応需"], horizontal=True,
+                        index=0 if res.get("decision","応需")=="応需" else 1, key="ed_decision")
+    if decision == "応需":
+        init_opts = ["当直医","救急科","その他"]
+        res["init"] = st.selectbox("初期対応した科", init_opts,
+                                   index=init_opts.index(res["init"]) if res.get("init") in init_opts else 0, key="ed_init")
+        if res["init"] == "その他":
+            res["init_other"] = st.text_input("初期対応科名", value=res.get("init_other",""), key="ed_init_other")
+        out_opts = ["入院","帰宅","その他"]
+        cur_out = res.get("out","") if res.get("out") in out_opts else "入院"
+        res["out"] = st.selectbox("最終転帰", out_opts, index=out_opts.index(cur_out), key="ed_out")
+        if res["out"] == "入院":
+            ward_opts = ["4東","6東","HCU","ICU","その他"]
+            cur_ward = res.get("ward","") if res.get("ward") in ward_opts else "4東"
+            res["ward"] = st.selectbox("病棟", ward_opts, index=ward_opts.index(cur_ward), key="ed_ward")
+            if res["ward"] == "その他":
+                res["ward_other"] = st.text_input("病棟名", value=res.get("ward_other",""), key="ed_ward_other")
+            main_opts = ["臨研","救急科","その他"]
+            cur_main = res.get("main","") if res.get("main") in main_opts else "臨研"
+            res["main"] = st.selectbox("主科", main_opts, index=main_opts.index(cur_main), key="ed_main")
+            if res["main"] == "その他":
+                res["main_other"] = st.text_input("主科名", value=res.get("main_other",""), key="ed_main_other")
+
+    # ボタン
     col_save, col_gen, col_cancel = st.columns(3)
     with col_save:
         if st.button("💾 保存", use_container_width=True):
             res["decision"] = decision
+            # dataを更新
+            data["kanji"] = e_kanji; data["kana"] = e_kana; data["age"] = e_age
+            data["gender"] = "1" if "男" in e_gender_sel else ("2" if "女" in e_gender_sel else "")
+            data["complaint"] = e_complaint
+            data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
+            data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
+            records[editing_key]["data"] = data
             records[editing_key]["res"] = res
             records[editing_key]["free_note"] = free_note
             records[editing_key]["case_no"] = case_no
+            records[editing_key]["recorder"] = e_recorder
+            records[editing_key]["origin"] = e_origin
+            records[editing_key]["history_yn"] = e_history_yn
+            records[editing_key]["history_dept"] = e_history_dept
             save_records(st.session_state.triage_records)
             st.session_state.editing_key = None
             st.success("保存しました")
@@ -653,17 +698,27 @@ if editing_key and editing_key in records:
     with col_gen:
         if st.button("🖨️ 台帳を生成", type="primary", use_container_width=True):
             res["decision"] = decision
+            data["kanji"] = e_kanji; data["kana"] = e_kana; data["age"] = e_age
+            data["gender"] = "1" if "男" in e_gender_sel else ("2" if "女" in e_gender_sel else "")
+            data["complaint"] = e_complaint
+            data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
+            data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
+            records[editing_key]["data"] = data
             records[editing_key]["res"] = res
             records[editing_key]["free_note"] = free_note
             records[editing_key]["case_no"] = case_no
+            records[editing_key]["recorder"] = e_recorder
+            records[editing_key]["origin"] = e_origin
+            records[editing_key]["history_yn"] = e_history_yn
+            records[editing_key]["history_dept"] = e_history_dept
             save_records(st.session_state.triage_records)
-            result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
+            result = render_triage(data, e_recorder, e_origin, shift, e_history_yn, e_history_dept,
                                    decision, res, case_no, free_note)
             st.image(result, use_container_width=True)
             buf = io.BytesIO()
             result.save(buf, format="JPEG", quality=95)
             st.download_button("📥 台帳を保存", buf.getvalue(),
-                               f"triage_{data['kanji']}.jpg", "image/jpeg")
+                               f"triage_{data.get('kanji','patient')}.jpg", "image/jpeg")
     with col_cancel:
         if st.button("キャンセル", use_container_width=True):
             st.session_state.editing_key = None
