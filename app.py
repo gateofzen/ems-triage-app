@@ -526,6 +526,29 @@ if records:
 <table class="pt" style="width:100%;border-collapse:collapse">{rows_html}</table>
 '''
     components.html(html, height=len(records)*36+20, scrolling=False)
+
+    # 一括削除ボタン（確認あり）
+    if "confirm_clear" not in st.session_state:
+        st.session_state.confirm_clear = False
+
+    if not st.session_state.confirm_clear:
+        if st.button("🗑️ 保存済み患者を一括削除", use_container_width=True):
+            st.session_state.confirm_clear = True
+            st.rerun()
+    else:
+        st.warning("⚠️ 保存済み患者を全員削除します。この操作は取り消せません。")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✅ はい、全削除する", type="primary", use_container_width=True):
+                st.session_state.triage_records = {}
+                save_records({})
+                st.session_state.confirm_clear = False
+                st.rerun()
+        with c2:
+            if st.button("❌ キャンセル", use_container_width=True):
+                st.session_state.confirm_clear = False
+                st.rerun()
+
     st.divider()
 
 # ===== 転帰更新モード =====
