@@ -649,7 +649,12 @@ if has_file:
 
         col1, col2 = st.columns(2)
         with col1:
-            case_no = st.selectbox("No.", list(range(1, 16)))
+            # 保存済み患者の最大番号+1を自動設定
+            used_nos = [r.get("case_no", 0) for r in st.session_state.triage_records.values()]
+            next_no = (max(used_nos) + 1) if used_nos else 1
+            next_no = min(next_no, 15)
+            default_idx = next_no - 1  # selectboxのindex（0始まり）
+            case_no = st.selectbox("No.", list(range(1, 16)), index=default_idx)
             recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
             origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
             history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
