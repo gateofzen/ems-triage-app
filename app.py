@@ -458,6 +458,8 @@ if "triage_records" not in st.session_state:
     st.session_state.triage_records = load_records()
 if "triage_raw" not in st.session_state:
     st.session_state.triage_raw = None
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
 if "editing_key" not in st.session_state:
     st.session_state.editing_key = None
 
@@ -545,7 +547,8 @@ st.subheader("🆕 新規患者")
 uploaded = st.file_uploader(
     "📷 画像を選択（スクリーンショットまたはカメラ撮影）",
     type=["png", "jpg", "jpeg"],
-    help="カメラ撮影時：OSの「QRコード認識できません」メッセージは無視してそのまま撮影→アップロードしてください"
+    help="カメラ撮影時：OSの「QRコード認識できません」メッセージは無視してそのまま撮影→アップロードしてください",
+    key=f"uploader_{st.session_state.uploader_key}"
 )
 
 if uploaded:
@@ -643,6 +646,7 @@ if uploaded:
                 }
                 save_records(st.session_state.triage_records)
                 st.session_state.triage_raw = None
+                st.session_state.uploader_key += 1
                 st.success(f"✅ {key}（{shift}）のデータを保存しました。")
                 st.rerun()
         with col_gen:
