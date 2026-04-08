@@ -591,7 +591,16 @@ if editing_key and editing_key in records:
                 res["main_other"] = st.text_input("主科名", value=res.get("main_other",""))
     free_note = st.text_area("自由記載", value=free_note, height=80)
 
-    col_gen, col_cancel = st.columns(2)
+    col_save, col_gen, col_cancel = st.columns(3)
+    with col_save:
+        if st.button("💾 保存", use_container_width=True):
+            res["decision"] = decision
+            records[editing_key]["res"] = res
+            records[editing_key]["free_note"] = free_note
+            save_records(st.session_state.triage_records)
+            st.session_state.editing_key = None
+            st.success("保存しました")
+            st.rerun()
     with col_gen:
         if st.button("🖨️ 台帳を生成", type="primary", use_container_width=True):
             res["decision"] = decision
