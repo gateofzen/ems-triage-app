@@ -1,263 +1,660 @@
 import streamlit as st
+import cv2
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-import io, os, json
-from datetime import date, datetime
+import pyzbar.pyzbar as pyzbar
+import base64
+import io
+import os
+import json
+from datetime import datetime
 
-st.set_page_config(page_title="ホットライン受付対応表", layout="centered")
-st.title("📞 ホットライン受付対応表")
+st.set_page_config(page_title="トリアージ台帳自動作成", layout="centered")
+st.title("🚑 トリアージ台帳自動作成")
 
+# ===== 日勤・夜勤の自動判定 =====
+def detect_shift(dt_str):
+    """8:30-16:30 = 日勤、それ以外 = 夜勤"""
+    try:
+        # dt_strは "4/8（水）17:40" 形式
+        time_part = dt_str.split("）")[-1].strip()
+        h, m = map(int, time_part.split(":"))
+        minutes = h * 60 + m
+        if 8 * 60 + 30 <= minutes < 16 * 60 + 30:
+            return "日勤"
+        return "夜勤"
+    except Exception:
+        return "夜勤"
+
+# ===== ファイル永続化 =====
+RECORDS_FILE = "triage_records.json"
+
+def load_records():
+    if os.path.exists(RECORDS_FILE):
+        try:
+            with open(RECORDS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_records(records):
+    try:
+        with open(RECORDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+# ===== フォントパス =====
 FONT_CANDIDATES = [
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
 ]
-_FONT_PATH = None
-for _p in FONT_CANDIDATES:
-    if os.path.exists(_p):
-        _FONT_PATH = _p; break
-if _FONT_PATH is None:
-    st.error("⚠️ 日本語フォントが見つかりません。packages.txt に fonts-noto-cjk を追加してください。")
 
 def get_font(size):
-    if _FONT_PATH:
-        return ImageFont.truetype(_FONT_PATH, max(10, size))
+    for path in FONT_CANDIDATES:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
     return ImageFont.load_default()
 
-# ===== ファイル永続化 =====
-CASES_FILE = "hl_cases.json"
+# ===== テキスト長（ピクセル）を計算 =====
+def getlength(text, font):
+    dummy = Image.new("RGB", (1, 1))
+    d = ImageDraw.Draw(dummy)
+    bbox = d.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0]
 
-def load_cases():
-    if os.path.exists(CASES_FILE):
-        try:
-            with open(CASES_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except: return []
-    return []
+# ===== 赤丸描画 =====
+def draw_maru(draw, center, r=22):
+    x, y = center
+    draw.ellipse([x - r, y - r, x + r, y + r], outline="red", width=5)
 
-def save_cases(cases):
+# ===== QRデコード =====
+def decode_qr(uploaded):
+    # PILで読み込み（HEIC以外のカメラ形式・大容量JPEGに対応）
     try:
-        with open(CASES_FILE, "w", encoding="utf-8") as f:
-            json.dump(cases, f, ensure_ascii=False, indent=2)
-    except: pass
+        pil_img = Image.open(uploaded).convert("RGB")
+        # 大きすぎる画像（スマホカメラ等）は縮小してメモリ節約・速度向上
+        max_size = 1920
+        w, h = pil_img.size
+        if max(w, h) > max_size:
+            scale = max_size / max(w, h)
+            pil_img = pil_img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        img_array = np.array(pil_img)
+        img = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+    except Exception:
+        # PILが失敗した場合はOpenCVで直接読み込み
+        uploaded.seek(0)
+        file_bytes = np.frombuffer(uploaded.read(), np.uint8)
+        img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        if img is None:
+            return None
 
-# ===== 時刻から勤務帯判定 =====
-def time_to_shift(time_str):
-    """'HH:MM' → '日勤' or '夜勤'。8:30-16:30=日勤"""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    def try_decode(image):
+        result = pyzbar.decode(image)
+        if result:
+            return result[0].data.decode("utf-8")
+        return None
+
+    def make_variants(g):
+        variants = [g]
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        variants.append(clahe.apply(g))
+        _, otsu = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        variants.append(otsu)
+        ada = cv2.adaptiveThreshold(g, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                    cv2.THRESH_BINARY, 11, 2)
+        variants.append(ada)
+        ada2 = cv2.adaptiveThreshold(g, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                     cv2.THRESH_BINARY, 15, 5)
+        variants.append(ada2)
+        kernel = np.array([[0,-1,0],[-1,5,-1],[0,-1,0]])
+        sharp = cv2.filter2D(g, -1, kernel)
+        variants.append(sharp)
+        blur = cv2.GaussianBlur(g, (5, 5), 0)
+        _, blur_otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        variants.append(blur_otsu)
+        return variants
+
+    h, w = gray.shape
+
+    for scale in [1.0, 0.75, 1.5, 0.5, 2.0]:
+        rw, rh = int(w * scale), int(h * scale)
+        resized = cv2.resize(gray, (rw, rh))
+        for variant in make_variants(resized):
+            r = try_decode(variant)
+            if r:
+                return r
+            for angle in [90, 180, 270]:
+                M = cv2.getRotationMatrix2D((rw/2, rh/2), angle, 1)
+                rotated = cv2.warpAffine(variant, M, (rw, rh))
+                r = try_decode(rotated)
+                if r:
+                    return r
+
     try:
-        h, m = map(int, time_str.split(":"))
-        minutes = h * 60 + m
-        if 8*60+30 <= minutes < 16*60+30:
-            return "日勤"
-        return "夜勤"
-    except:
-        return "夜勤"
+        blurred = cv2.GaussianBlur(gray, (9, 9), 0)
+        _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:3]
+        for cnt in contours:
+            x, y, cw, ch = cv2.boundingRect(cnt)
+            if cw > w * 0.1 and ch > h * 0.1:
+                pad = 20
+                x1 = max(0, x-pad); y1 = max(0, y-pad)
+                x2 = min(w, x+cw+pad); y2 = min(h, y+ch+pad)
+                crop = gray[y1:y2, x1:x2]
+                crop_up = cv2.resize(crop, (crop.shape[1]*2, crop.shape[0]*2))
+                for variant in make_variants(crop_up):
+                    r = try_decode(variant)
+                    if r:
+                        return r
+    except Exception:
+        pass
 
-RESCUE_TEAMS = [
-    "","中央","大通","桑園","山鼻","北","篠路","新光","東","栄","東苗穂",
-    "白石","菊水","厚別","厚別西","豊平","西岡","平岸","清田","南","定山渓",
-    "西","前田","西野","手稲","石山","あいの里","北野","警防","豊水","幌西",
-    "藤野","八軒","北郷","札苗","苗穂","北エルム","東モエレ",
-]
-LEADERS   = ["前川","中嶋","森木","小舘","遠藤"]
-WEEKDAYS  = ["月","火","水","木","金","土","日"]
-BLOCK_TOPS = [168, 460, 749, 1039, 1329, 1619]
-TIME_OPTIONS = [""] + [f"{h:02d}:{m:02d}" for h in range(24) for m in range(0,60,5)]
+    return None
 
-def render_hotline(header, cases, sheet_no=1):
-    base = Image.open("hotline.png").convert("RGB")
-    W, H = base.size
-    sx=W/1413; sy=H/2000; s=min(sx,sy)
-    def X(v): return int(v*sx)
-    def Y(v): return int(v*sy)
-    def R(v): return max(4,int(v*s))
-    def F(v): return get_font(max(8,int(v*s)))
-    def dm(cx,cy,r=14):
-        d.ellipse([X(cx)-R(r),Y(cy)-R(r),X(cx)+R(r),Y(cy)+R(r)],outline="black",width=max(2,R(4)))
+# ===== QRデータ解析 =====
+def parse_qr(raw):
+    try:
+        decoded = base64.b64decode(raw).decode("utf-8")
+    except Exception:
+        decoded = raw
+    items = decoded.split(",")
 
+    def safe(i, default=""):
+        return items[i].strip() if i < len(items) else default
+
+    # 氏名
+    name_raw = safe(4)
+    if "θ" in name_raw:
+        parts = name_raw.split("θ")
+        kanji = parts[0].strip()
+        kana = parts[1].strip() if len(parts) > 1 else ""
+    else:
+        kanji = name_raw
+        kana = ""
+
+    # 依頼日時
+    dt_raw = safe(1)
+    try:
+        dt = datetime.strptime(dt_raw[:16], "%Y/%m/%d %H:%M")
+        weekdays = ["月", "火", "水", "木", "金", "土", "日"]
+        dt_str = dt.strftime(f"%-m/%-d（{weekdays[dt.weekday()]}）%H:%M")
+    except Exception:
+        dt_str = dt_raw
+
+    # 生年月日
+    birth_raw = safe(13)
+    if len(birth_raw) == 8 and birth_raw.isdigit():
+        birth_y = birth_raw[:4]
+        birth_m = birth_raw[4:6].lstrip("0")
+        birth_d = birth_raw[6:8].lstrip("0")
+    else:
+        birth_y = birth_m = birth_d = ""
+
+    # 主訴の自動抽出
+    complaint = safe(8)
+    if not complaint:
+        for idx in [8, 10, 11]:
+            v = safe(idx)
+            if v and len(v) <= 30 and not v.isdigit():
+                complaint = v
+                break
+    if not complaint:
+        history_text = safe(9)
+        for sep in ["。", "、", "\n"]:
+            if sep in history_text:
+                complaint = history_text.split(sep)[0]
+                break
+
+    # 救急隊名: インデックス[29]が確定（実データ検証済み）
+    # "大通５" → "大通" のように末尾の数字を除去
+    import re
+    team_raw = safe(29)
+    team_name = re.sub(r'\d+$', '', team_raw).strip()
+    # [29]が空の場合は "救急隊" を含む項目を全体から検索
+    if not team_name:
+        for idx in range(len(items)):
+            v = safe(idx)
+            if "救急隊" in v:
+                team_name = v.replace("救急隊", "").strip()
+                break
+
+    return {
+        "kanji": kanji,
+        "kana": kana,
+        "dt_str": dt_str,
+        "birth_y": birth_y,
+        "birth_m": birth_m,
+        "birth_d": birth_d,
+        "age": safe(14),
+        "gender": safe(5),
+        "complaint": complaint,
+        "history": safe(9),
+        "jcs": safe(15),
+        "bp_s": safe(19),
+        "bp_d": safe(20),
+        "hr": safe(21),
+        "rr": safe(22),
+        "bt": safe(23),
+        "spo2": safe(24),
+        "team_name": team_name,
+        "items": items,
+    }
+
+# ===== テンプレート描画 =====
+def render_triage(data, recorder, origin, shift, history_yn, history_dept, decision, res, case_no, free_note=""):
+    base = Image.open("template.png").convert("RGB")
     d = ImageDraw.Draw(base)
-    f34=F(34); f30=F(30); f26=F(26); f22=F(22)
 
-    # ===== No.（ヘッダー行 Y=109-168, X=0-194の中央）=====
-    f_no = F(42)
-    no_str = str(sheet_no)
-    bb = d.textbbox((0,0), no_str, font=f_no)
-    tw = bb[2]-bb[0]; th = bb[3]-bb[1]
-    no_x = X(104 + (194-104-tw)//2)
-    no_y = Y(109 + (168-109-th)//2)
-    d.text((no_x, no_y), no_str, font=f_no, fill="black")
+    f18 = get_font(18)
+    f24 = get_font(24)
+    f28 = get_font(28)
+    f36 = get_font(36)
+    f44 = get_font(44)
 
-    # ===== ヘッダー =====
-    dt = header["date"] if isinstance(header["date"],date) else date.fromisoformat(str(header["date"]))
-    wd = WEEKDAYS[dt.weekday()]
-    d.text((X(260),Y(108)),str(dt.year),font=f30,fill="black")
-    d.text((X(420),Y(108)),str(dt.month),font=f30,fill="black")
-    d.text((X(485),Y(108)),str(dt.day),font=f30,fill="black")
-    d.text((X(590),Y(108)),wd,font=f30,fill="black")
-    shift = header["shift"]
-    if shift=="日勤": dm(701,138,r=18)
-    else: dm(778,138,r=18)
-    d.text((X(1080),Y(106)),header["leader"],font=f34,fill="black")
+    # ===== No.（X=11-135, Y=3-122, 中央寄せ） =====
+    no_str = str(case_no)
+    f_no = get_font(52)
+    tw_no = getlength(no_str, f_no)
+    cell_w_no = 135 - 11
+    no_x = 11 + (cell_w_no - tw_no) // 2
+    d.text((no_x, 26), no_str, font=f_no, fill="black")
 
-    for i,case in enumerate(cases):
-        if i>=6: break
-        yt=BLOCK_TOPS[i]
-        yn=yt-5; yc=yt+21; yg=yt+60; yn2=yt+131
-        yr1=yt+222; yr2=yt+247; yr3=yt+276
+    # ===== 記載者（V=911-1176, Y=55, 中央寄せ） =====
+    cell_w = 1176 - 911
+    tw = getlength(recorder, f44)
+    kx_rec = 911 + (cell_w - tw) // 2
+    d.text((kx_rec, 38), recorder, font=f44, fill="black")
 
-        if case.get("time"): d.text((X(300),Y(yn)),case["time"],font=f26,fill="black")
-        if case.get("req_count")=="初回": dm(620,yn+14,r=16)
-        else:
-            num=(case.get("req_count") or "").replace("回目","").replace("回","")
-            if num: d.text((X(718),Y(yn)),num,font=f26,fill="black")
-        if case.get("team"): d.text((X(970),Y(yn)),case["team"],font=f26,fill="black")
-        if case.get("age"): d.text((X(235),Y(yc)),str(case["age"]),font=f26,fill="black")
-        if case.get("gender")=="M": dm(442,yc+20,r=14)
-        elif case.get("gender")=="F": dm(512,yc+20,r=14)
+    # ===== 依頼日時 =====
+    d.text((155, 145), data["dt_str"], font=f36, fill="black")
 
-        lines=[]; line=""
-        for ch in (case.get("summary") or ""):
-            line+=ch
-            if len(line)>=30: lines.append(line); line=""
-        if line: lines.append(line)
-        for li,ln in enumerate(lines[:2]):
-            d.text((X(168),Y(yg+li*30)),ln,font=f22,fill="black")
+    # ===== 日勤・夜勤 ◯（(日勤・夜勤)テキスト Y≈185, 日勤X≈57, 夜勤X≈107）=====
+    if shift == "日勤":
+        draw_maru(d, (57, 185), r=15)
+    else:
+        draw_maru(d, (107, 185), r=15)
 
-        outcome=case.get("outcome","")
-        tenki_map={"搬入":(195,yn2),"お断り":(270,yn2),"2次やかかりつけ医案内":(500,yn2),"患者都合":(790,yn2),"その他":(192,yt+214)}
-        if outcome in tenki_map: dm(*tenki_map[outcome],r=14)
+    # ===== 依頼元（救急隊名, V=676-911） =====
+    origin_clean = origin.replace("救急隊", "").strip()
+    d.text((730, 148), origin_clean, font=f28, fill="black")
 
-        if outcome=="お断り":
-            reason=case.get("reason","")
-            if reason=="1_満床":
-                dm(192,yr1,r=12)  # "1." X=175-210→中心192
-                sub_map={
-                    "満床・満床に準ずる状態":(459,yr1),  # □X=453-604→459
-                    "ICU個室(感染等)満床":    (635,yr1),  # □X=627-707→635
-                    "熱傷患者受入不能":       (785,yr1),  # □X=778-902→785
+    # ===== 受診歴 =====
+    if history_yn == "有":
+        draw_maru(d, (1100, 165), r=22)
+        dept = history_dept.rstrip("科")
+        d.text((1130, 150), dept, font=f24, fill="black")
+    else:
+        draw_maru(d, (1270, 165), r=22)
+
+    # ===== 患者氏名（V=135-543, 中央寄せ） =====
+    cell_w_name = 543 - 135
+    kw = getlength(data["kanji"], f44)
+    kx = 135 + (cell_w_name - kw) // 2
+    d.text((kx, 245), data["kana"], font=f18, fill="black")
+    d.text((kx, 268), data["kanji"], font=f44, fill="black")
+
+    f30 = get_font(30)
+
+    # ===== 生年月日（上段行 Y=222-289, Y=242） =====
+    # ズームテスト確認済み: 「年」label_x=1018, 「月」label_x=1152, 「日」label_x=1284
+    for val, label_x in [(data["birth_y"], 1018), (data["birth_m"], 1152), (data["birth_d"], 1284)]:
+        if val:
+            tw_val = getlength(val, f30)
+            d.text((label_x - tw_val - 4, 242), val, font=f30, fill="black")
+
+    # ===== 年齢（下段行 Y=289-356）=====
+    # ズームテスト確認: 「歳」はX=999-1020 → 年の数字（X≈961）と同じ位置に来るよう右寄せ
+    if data["age"]:
+        age_tw = getlength(data["age"], f30)
+        d.text((999 - age_tw - 4, 305), data["age"], font=f30, fill="black")
+
+    # ===== 性別 =====
+    if data["gender"] == "1":
+        draw_maru(d, (1140, 318), r=18)
+    elif data["gender"] == "2":
+        draw_maru(d, (1214, 322), r=18)
+
+    # ===== 主訴（折返し幅30文字） =====
+    complaint_lines = []
+    line = ""
+    for ch in data["complaint"]:
+        line += ch
+        if len(line) >= 30:
+            complaint_lines.append(line)
+            line = ""
+    if line:
+        complaint_lines.append(line)
+    for i, ln in enumerate(complaint_lines):
+        d.text((150, 405 + i * 32), ln, font=f28, fill="black")
+
+    # ===== 経過等（折返し幅18文字, Y>1260で打切り） =====
+    history_lines = []
+    line = ""
+    for ch in data["history"]:
+        line += ch
+        if len(line) >= 18:
+            history_lines.append(line)
+            line = ""
+    if line:
+        history_lines.append(line)
+    for i, ln in enumerate(history_lines):
+        y = 530 + i * 32
+        if y > 1260:
+            break
+        d.text((150, y), ln, font=f28, fill="black")
+
+    # ===== バイタルサイン =====
+    d.text((1120, 705), data["jcs"], font=f28, fill="black")
+    d.text((1060, 775), data["rr"], font=f28, fill="black")
+    d.text((1060, 845), data["hr"], font=f28, fill="black")
+    d.text((1060, 915), f"{data['bp_s']}/{data['bp_d']}", font=f28, fill="black")
+    d.text((1060, 978), data["spo2"], font=f28, fill="black")
+    d.text((1060, 1048), data["bt"], font=f28, fill="black")
+
+    # ===== 判定 =====
+    if decision == "応需":
+        draw_maru(d, (74, 1355), r=26)
+    else:
+        draw_maru(d, (74, 1420), r=26)
+
+    if decision == "応需":
+        # 初期対応した科
+        init_map = {"当直医": (615, 1345), "救急科": (737, 1345), "その他": (888, 1345)}
+        if res.get("init") in init_map:
+            draw_maru(d, init_map[res["init"]], r=27)
+        if res.get("init") == "その他" and res.get("init_other"):
+            d.text((960, 1332), res["init_other"].rstrip("科"), font=f18, fill="black")
+
+        # 最終転帰
+        if res.get("out") == "入院":
+            draw_maru(d, (400, 1435), r=16)
+        elif res.get("out") == "帰宅":
+            draw_maru(d, (340, 1461), r=16)
+
+        # 病棟
+        ward_map = {"4東": (784, 1466), "HCU": (861, 1466), "ICU": (943, 1466)}
+        if res.get("ward") in ward_map:
+            draw_maru(d, ward_map[res["ward"]], r=18)
+        elif res.get("ward") == "その他" and res.get("ward_other"):
+            d.text((840, 1480), res["ward_other"], font=f18, fill="black")
+
+        # 主科
+        main_map = {"臨研": (1083, 1445), "救急科": (1095, 1480)}
+        if res.get("main") in main_map:
+            draw_maru(d, main_map[res["main"]], r=18)
+        elif res.get("main") == "その他":
+            draw_maru(d, (1095, 1480), r=18)
+            if res.get("main_other"):
+                d.text((1095, 1500), res["main_other"].rstrip("科"), font=f18, fill="black")
+    else:
+        # 不応需理由
+        # テンプレート画像解析済みY座標（各行テキスト中央）
+        reason_labels = [
+            "1. 緊急性なし",
+            "2. ベッド満床",
+            "3. 既定の応需不可",
+            "4. 対応可能な医師不在",
+            "5. 緊急手術制限中",
+            "6-A. 医師処置中",
+            "6-B. 看護師処置中",
+            "7. その他",
+        ]
+        reason_y = [1537, 1570, 1604, 1640, 1671, 1704, 1738, 1772]
+
+        rk = res.get("reason", "")
+        for label, ry in zip(reason_labels, reason_y):
+            if rk and rk.split(".")[0].strip() == label.split(".")[0].strip():
+                draw_maru(d, (148, ry), r=16)
+
+                # 理由2: ベッド満床のサブ選択肢
+                if rk.startswith("2."):
+                    bed_map = {
+                        "救急外来": (427, 1570),
+                        "HCU":    (523, 1570),
+                        "4東":    (635, 1570),
+                        "その他": (752, 1570),
+                    }
+                    sub = res.get("bed_sub", "")
+                    if sub in bed_map:
+                        draw_maru(d, bed_map[sub], r=13)
+
+                # 理由3-6B: フリーコメント
+                comment_x = {
+                    "3.": 480, "4.": 490, "5.": 430,
+                    "6-A.": 700, "6-B.": 720,
                 }
-                if case.get("reason1_sub") in sub_map: dm(*sub_map[case["reason1_sub"]],r=12)
-            elif reason=="2_マンパワー":
-                dm(295,yr2,r=12)
-                sub_map2={"他患の処置・手術等で余力なし":(465,yr2),"別の救急患者の搬入直前・直後":(735,yr2)}
-                if case.get("reason2_sub") in sub_map2: dm(*sub_map2[case["reason2_sub"]],r=12)
-            elif reason=="3_院内専門科":
-                dm(289,yr3,r=12)
-                if case.get("reason3_dept"):
-                    d.text((X(415),Y(yr3-20)),case["reason3_dept"].rstrip("科"),font=f22,fill="black")
-                sub_map3={
-                    "当該科手術中": (578,yr3),  # □X=571-606→578
-                    "学会等で不在": (748,yr3),  # □X=741-795→748
-                    "麻酔科対応不能":(835,yr3),  # □X=828-936→835
-                }
-                if case.get("reason3_sub") in sub_map3: dm(*sub_map3[case["reason3_sub"]],r=12)
+                rk_prefix = rk.split(" ")[0]
+                if rk_prefix in comment_x and res.get("reason_comment"):
+                    d.text((comment_x[rk_prefix], ry - 14),
+                           res["reason_comment"], font=f24, fill="black")
+                break
+
+    # ===== 自由記載（Y=1870付近, 折返し幅35文字） =====
+    if free_note:
+        fn_lines = []
+        line = ""
+        for ch in free_note:
+            line += ch
+            if len(line) >= 35:
+                fn_lines.append(line)
+                line = ""
+        if line:
+            fn_lines.append(line)
+        for i, ln in enumerate(fn_lines):
+            d.text((150, 1870 + i * 36), ln, font=f28, fill="black")
+
     return base
 
-# ===== セッション状態 =====
-if "hl_cases" not in st.session_state:
-    st.session_state.hl_cases = load_cases()
-if "hl_header" not in st.session_state:
-    st.session_state.hl_header = {"date": date.today().isoformat(), "leader": "前川"}
+# ===== メインUI =====
 
-# ===== ヘッダー =====
-st.subheader("📋 基本情報")
-c1,c2 = st.columns(2)
-with c1:
-    saved_date = st.session_state.hl_header.get("date", date.today().isoformat())
-    input_date = st.date_input("日付", value=date.fromisoformat(str(saved_date)))
-with c2:
-    leader = st.selectbox("リーダー医師名", LEADERS,
-                          index=LEADERS.index(st.session_state.hl_header.get("leader","前川")))
-st.session_state.hl_header = {"date": input_date.isoformat(), "leader": leader}
+# セッション状態初期化（ページリロード時はファイルから復元）
+if "triage_records" not in st.session_state:
+    st.session_state.triage_records = load_records()
+if "triage_raw" not in st.session_state:
+    st.session_state.triage_raw = None
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+if "editing_key" not in st.session_state:
+    st.session_state.editing_key = None
 
-# ===== 登録済み一覧 =====
-st.divider()
-cases = st.session_state.hl_cases
-n = len(cases)
+# ===== 保存済み患者一覧 =====
+records = st.session_state.triage_records
+if records:
+    st.subheader("📋 保存済み患者")
+    for key, rec in list(records.items()):
+        col_a, col_b, col_c = st.columns([4, 1, 1])
+        outcome_str = rec.get("res", {}).get("out", "未記入")
+        shift_str = rec.get("shift", "")
+        with col_a:
+            st.write(f"**{key}**　{rec['data']['dt_str']}（{shift_str}）　転帰: {outcome_str}")
+        with col_b:
+            if st.button("転帰更新", key=f"edit_{key}"):
+                st.session_state.editing_key = key
+                st.rerun()
+        with col_c:
+            if st.button("削除", key=f"del_{key}"):
+                del st.session_state.triage_records[key]
+                save_records(st.session_state.triage_records)
+                if st.session_state.editing_key == key:
+                    st.session_state.editing_key = None
+                st.rerun()
+    st.divider()
 
-# 日勤・夜勤で件数集計
-nisshin = [c for c in cases if time_to_shift(c.get("time","")) == "日勤"]
-yashin  = [c for c in cases if time_to_shift(c.get("time","")) == "夜勤"]
-st.subheader(f"🚑 登録済み: {n}件（日勤{len(nisshin)}件 / 夜勤{len(yashin)}件）")
-for i,c in enumerate(cases):
-    shift_c = time_to_shift(c.get("time",""))
-    ca,cb = st.columns([6,1])
-    with ca:
-        st.write(f"**{i+1}**　{c.get('time','--:--')}【{shift_c}】　{c.get('team','') or '隊名なし'}救急隊　→ {c.get('outcome','')}")
-    with cb:
-        if st.button("削除",key=f"del_{i}"):
-            st.session_state.hl_cases.pop(i)
-            save_cases(st.session_state.hl_cases)
+# ===== 転帰更新モード =====
+editing_key = st.session_state.editing_key
+if editing_key and editing_key in records:
+    rec = records[editing_key]
+    st.subheader(f"✏️ 転帰更新：{editing_key}")
+    data = rec["data"]
+    res = dict(rec.get("res", {}))
+    case_no = rec.get("case_no", 1)
+    shift = rec.get("shift", "日勤")
+    recorder = rec.get("recorder", "前川")
+    origin = rec.get("origin", "中央")
+    history_yn = rec.get("history_yn", "無")
+    history_dept = rec.get("history_dept", "")
+    free_note = rec.get("free_note", "")
+
+    st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**")
+    decision = st.radio("判定", ["応需", "不応需"], horizontal=True,
+                        index=0 if res.get("decision","応需")=="応需" else 1)
+    if decision == "応需":
+        res["init"] = st.selectbox("初期対応した科", ["当直医", "救急科", "その他"],
+                                   index=["当直医","救急科","その他"].index(res.get("init","当直医")))
+        if res["init"] == "その他":
+            res["init_other"] = st.text_input("初期対応科名", value=res.get("init_other",""))
+        res["out"] = st.selectbox("最終転帰", ["入院", "帰宅", "その他"],
+                                  index=["入院","帰宅","その他"].index(res.get("out","入院")))
+        if res["out"] == "入院":
+            res["ward"] = st.selectbox("病棟", ["4東", "HCU", "ICU", "その他"],
+                                       index=["4東","HCU","ICU","その他"].index(res.get("ward","4東")))
+            if res["ward"] == "その他":
+                res["ward_other"] = st.text_input("病棟名", value=res.get("ward_other",""))
+            res["main"] = st.selectbox("主科", ["臨研", "救急科", "その他"],
+                                       index=["臨研","救急科","その他"].index(res.get("main","臨研")))
+            if res["main"] == "その他":
+                res["main_other"] = st.text_input("主科名", value=res.get("main_other",""))
+    free_note = st.text_area("自由記載", value=free_note, height=80)
+
+    col_gen, col_cancel = st.columns(2)
+    with col_gen:
+        if st.button("🖨️ 台帳を生成", type="primary", use_container_width=True):
+            res["decision"] = decision
+            records[editing_key]["res"] = res
+            records[editing_key]["free_note"] = free_note
+            save_records(st.session_state.triage_records)
+            result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
+                                   decision, res, case_no, free_note)
+            st.image(result, use_container_width=True)
+            buf = io.BytesIO()
+            result.save(buf, format="JPEG", quality=95)
+            st.download_button("📥 台帳を保存", buf.getvalue(),
+                               f"triage_{data['kanji']}.jpg", "image/jpeg")
+    with col_cancel:
+        if st.button("キャンセル", use_container_width=True):
+            st.session_state.editing_key = None
             st.rerun()
+    st.stop()
 
-# ===== 新規入力 =====
-st.divider()
-st.subheader(f"➕ 症例 {n+1} を入力")
-cc1,cc2=st.columns(2)
-with cc1:
-    sel_time=st.selectbox("時刻",TIME_OPTIONS,key="inp_time")
-    if sel_time:
-        st.caption(f"→ **{time_to_shift(sel_time)}**")
-with cc2: team=st.selectbox("依頼先救急隊",RESCUE_TEAMS,key="inp_team")
-cc3,cc4,cc5=st.columns(3)
-with cc3: req_count=st.selectbox("依頼回数",["初回","2回目","3回目","4回目以上"],key="inp_req")
-with cc4: age=st.number_input("年齢（才）",min_value=0,max_value=120,value=0,step=1,key="inp_age")
-with cc5: gender=st.radio("性別",["M","F","未記載"],horizontal=True,key="inp_gender")
-summary=st.text_area("概略",height=70,key="inp_summary",placeholder="主訴・経過を入力")
-outcome=st.radio("転帰",["搬入","お断り","2次やかかりつけ医案内","患者都合","その他"],horizontal=True,key="inp_outcome")
-reason=reason1_sub=reason2_sub=reason3_dept=reason3_sub=""
-if outcome=="お断り":
-    reason=st.radio("お断り理由",["1_満床","2_マンパワー","3_院内専門科"],
-        format_func=lambda x:{"1_満床":"1. 病床の都合","2_マンパワー":"2. マンパワーの問題","3_院内専門科":"3. 院内専門科の都合"}[x],
-        key="inp_reason")
-    if reason=="1_満床":
-        reason1_sub=st.selectbox("病床理由詳細",
-            ["","満床・満床に準ずる状態","ICU個室(感染等)満床","熱傷患者受入不能"],key="inp_r1")
-    elif reason=="2_マンパワー":
-        reason2_sub=st.selectbox("マンパワー理由詳細",
-            ["","他患の処置・手術等で余力なし","別の救急患者の搬入直前・直後"],key="inp_r2")
-    elif reason=="3_院内専門科":
-        reason3_dept=st.text_input("専門科名",key="inp_dept",placeholder="循環器")
-        reason3_sub=st.selectbox("専門科理由詳細",["","当該科手術中","学会等で不在","麻酔科対応不能"],key="inp_r3")
+# ===== 新規患者入力 =====
+st.subheader("🆕 新規患者")
+uploaded = st.file_uploader(
+    "📷 画像を選択（スクリーンショットまたはカメラ撮影）",
+    type=["png", "jpg", "jpeg"],
+    help="カメラ撮影時：OSの「QRコード認識できません」メッセージは無視してそのまま撮影→アップロードしてください",
+    key=f"uploader_{st.session_state.uploader_key}"
+)
 
-if st.button("✅ この症例を登録",type="primary",use_container_width=True):
-    st.session_state.hl_cases.append({
-        "time":sel_time,"team":team,"req_count":req_count,
-        "age":age if age>0 else "","gender":gender if gender!="未記載" else "",
-        "summary":summary,"outcome":outcome,"reason":reason,
-        "reason1_sub":reason1_sub,"reason2_sub":reason2_sub,
-        "reason3_dept":reason3_dept,"reason3_sub":reason3_sub,
-    })
-    save_cases(st.session_state.hl_cases)
-    st.rerun()
+if uploaded:
+    # まだ読み取っていない場合のみデコード実行
+    if st.session_state.triage_raw is None:
+        with st.spinner("QRコードを読み取り中..."):
+            raw = decode_qr(uploaded)
+        if raw is None:
+            st.error("❌ QRコードが認識できませんでした。\n\n**対処法：**\n- QRコードを画面の中央に大きく写して再撮影\n- 明るい場所でピントを合わせてから撮影\n- スクリーンショット画像を使用")
+        else:
+            st.session_state.triage_raw = raw
+            st.success("✅ QRコード読み取り成功！")
 
-# ===== 出力（日勤・夜勤を別紙）=====
-st.divider()
-oc1,oc2=st.columns(2)
-with oc1:
-    if st.button("🖨️ 受付対応表を生成",type="primary",use_container_width=True,
-                 disabled=(len(st.session_state.hl_cases)==0)):
-        date_str = input_date.strftime('%Y%m%d')
+    raw = st.session_state.triage_raw
 
-        for shift_label, shift_cases in [("日勤", nisshin), ("夜勤", yashin)]:
-            if not shift_cases:
-                continue
-            st.write(f"### 📄 {shift_label}（{len(shift_cases)}件）")
-            n_sh = max(1,(len(shift_cases)+5)//6)
-            header_for_render = {"date": input_date.isoformat(), "shift": shift_label, "leader": leader}
-            for sh in range(n_sh):
-                sheet_cases = shift_cases[sh*6:sh*6+6]
-                with st.spinner(f"{shift_label} No.{sh+1} 生成中..."):
-                    result = render_hotline(header_for_render, sheet_cases, sheet_no=sh+1)
-                st.write(f"**{shift_label} No.{sh+1}**（症例{sh*6+1}〜{min(sh*6+len(sheet_cases),len(shift_cases))}）")
+    if raw:
+        data = parse_qr(raw)
+
+        # 受付時刻から勤務帯を自動判定
+        shift = detect_shift(data["dt_str"])
+        st.info(f"🕐 受付時刻: {data['dt_str']}　→ 勤務帯: **{shift}**（8:30-16:30=日勤、それ以外=夜勤）")
+
+        with st.expander("🔍 QRデータ確認（デバッグ用）", expanded=False):
+            st.write(f"**救急隊名候補（自動）:** `{data['team_name']}` ← 正しくない場合は下のリストから正しいインデックスを確認してください")
+            for i, v in enumerate(data["items"]):
+                label = ""
+                if i == 1: label = "← 依頼日時"
+                elif i == 4: label = "← 氏名"
+                elif i == 5: label = "← 性別"
+                elif i == 8: label = "← 主訴"
+                elif i == 9: label = "← 経過等"
+                elif i == 13: label = "← 生年月日"
+                elif i == 14: label = "← 年齢"
+                elif i == 15: label = "← JCS"
+                elif i == 19: label = "← BP(上)"
+                elif i == 20: label = "← BP(下)"
+                elif i == 21: label = "← HR"
+                elif i == 22: label = "← RR"
+                elif i == 23: label = "← BT"
+                elif i == 24: label = "← SpO2"
+                st.text(f"[{i:2d}] {v[:80]}  {label}")
+
+        st.subheader("台帳情報の入力")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            case_no = st.selectbox("No.", list(range(1, 16)))
+            recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
+            origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
+            history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
+        with col2:
+            history_dept = ""
+            if history_yn == "有":
+                history_dept = st.text_input("受診科名")
+            decision = st.radio("判定", ["応需", "不応需"], horizontal=True)
+
+        complaint_edit = st.text_input("主訴（編集可）", value=data["complaint"])
+        data["complaint"] = complaint_edit
+        free_note = st.text_area("自由記載", placeholder="自由記載欄へのコメントを入力", height=80)
+
+        res = {"decision": decision}
+        if decision == "応需":
+            res["init"] = st.selectbox("初期対応した科", ["当直医", "救急科", "その他"])
+            if res["init"] == "その他":
+                res["init_other"] = st.text_input("初期対応科名")
+            res["out"] = st.selectbox("最終転帰", ["（後で入力）", "入院", "帰宅", "その他"])
+            if res["out"] == "入院":
+                res["ward"] = st.selectbox("病棟", ["（後で入力）", "4東", "HCU", "ICU", "その他"])
+                if res["ward"] == "その他":
+                    res["ward_other"] = st.text_input("病棟名")
+                res["main"] = st.selectbox("主科", ["（後で入力）", "臨研", "救急科", "その他"])
+                if res["main"] == "その他":
+                    res["main_other"] = st.text_input("主科名")
+        else:
+            res["reason"] = st.selectbox("不応需理由", [
+                "1. 緊急性なし", "2. ベッド満床", "3. 既定の応需不可",
+                "4. 対応可能な医師不在", "5. 緊急手術制限中",
+                "6-A. 医師処置中", "6-B. 看護師処置中", "7. その他",
+            ])
+            if res["reason"].startswith("2."):
+                res["bed_sub"] = st.radio("ベッド満床の場所",
+                    ["救急外来", "HCU", "4東", "その他"], horizontal=True)
+            if any(res["reason"].startswith(p) for p in ["3.", "4.", "5.", "6-A.", "6-B."]):
+                res["reason_comment"] = st.text_input("コメント（理由の右欄）")
+
+        col_save, col_gen = st.columns(2)
+        with col_save:
+            if st.button("💾 患者データを保存（転帰は後で入力）", use_container_width=True):
+                key = data["kanji"] or data["kana"] or "不明"
+                st.session_state.triage_records[key] = {
+                    "data": data, "shift": shift, "case_no": case_no,
+                    "recorder": recorder, "origin": origin,
+                    "history_yn": history_yn, "history_dept": history_dept,
+                    "decision": decision, "res": res, "free_note": free_note,
+                }
+                save_records(st.session_state.triage_records)
+                st.session_state.triage_raw = None
+                st.session_state.uploader_key += 1
+                st.success(f"✅ {key}（{shift}）のデータを保存しました。")
+                st.rerun()
+        with col_gen:
+            if st.button("🖨️ 今すぐ台帳を生成", type="primary", use_container_width=True):
+                result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
+                                       decision, res, case_no, free_note)
                 st.image(result, use_container_width=True)
-                buf=io.BytesIO()
-                result.save(buf,format="JPEG",quality=95)
-                st.download_button(
-                    f"📥 {shift_label} No.{sh+1} 保存", buf.getvalue(),
-                    f"hotline_{date_str}_{shift_label}_No{sh+1}.jpg","image/jpeg",
-                    key=f"dl_{shift_label}_{sh}")
-with oc2:
-    if st.button("🗑️ 全症例をリセット",use_container_width=True):
-        st.session_state.hl_cases=[]
-        save_cases([])
-        st.rerun()
+                buf = io.BytesIO()
+                result.save(buf, format="JPEG", quality=95)
+                st.download_button("📥 台帳を保存", buf.getvalue(),
+                                   f"triage_{data['kanji']}.jpg", "image/jpeg")
