@@ -670,6 +670,10 @@ if st.session_state.manual_mode:
     now_jst = dt2.now(jst)
     mc1, mc2 = st.columns(2)
     with mc1:
+        # 患者番号（保存済みの次の番号を自動設定）
+        _used = [r.get("case_no",0) for r in st.session_state.triage_records.values()]
+        _next = min((max(_used)+1) if _used else 1, 15)
+        m_case_no = st.selectbox("No.", list(range(1,16)), index=_next-1, key="m_case_no_inp")
         m_kanji = st.text_input("患者氏名（漢字）", placeholder="山田 太郎")
         m_kana  = st.text_input("患者氏名（カナ）", placeholder="ヤマダ タロウ")
         m_age   = st.number_input("年齢（才）", min_value=0, max_value=120, value=0, step=1)
@@ -716,6 +720,7 @@ if st.session_state.manual_mode:
             "bp_d": bp_parts[1] if len(bp_parts)>1 else "",
             "hr": m_hr, "rr": m_rr, "bt": m_bt, "spo2": m_spo2,
             "team_name": m_team, "items": [],
+            "_case_no": m_case_no,
         }
         st.session_state.triage_raw = "MANUAL"
         st.session_state._manual_data = data
@@ -740,7 +745,8 @@ if st.session_state.manual_mode:
         with col1:
             used_nos = [r.get("case_no", 0) for r in st.session_state.triage_records.values()]
             next_no = (max(used_nos) + 1) if used_nos else 1
-            case_no = st.selectbox("No.", list(range(1, 16)), index=min(next_no,15)-1, key="m_case_no")
+            _def_no = int(data.get("_case_no", min(next_no,15)))
+            case_no = st.selectbox("No.", list(range(1, 16)), index=_def_no-1, key="m_case_no")
             recorders = ["前川", "森木", "小舘", "遠藤"]
             rec_idx = recorders.index(st.session_state.get("last_recorder","前川")) if st.session_state.get("last_recorder") in recorders else 0
             recorder = st.selectbox("記載者", recorders, index=rec_idx, key="m_recorder")
