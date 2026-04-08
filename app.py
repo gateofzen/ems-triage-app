@@ -676,6 +676,15 @@ if has_file:
         # 受付時刻から勤務帯を自動判定
         shift = detect_shift(data["dt_str"])
         st.info(f"🕐 受付時刻: {data['dt_str']}　→ 勤務帯: **{shift}**（8:30-16:30=日勤、それ以外=夜勤）")
+        # 患者情報表示
+        kanji = data.get("kanji","")
+        birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
+        dob = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else ""
+        age = data.get("age","")
+        age_str = f"{age}歳" if age else ""
+        info_parts = [p for p in [kanji, dob, age_str] if p]
+        if info_parts:
+            st.markdown(f"**患者:** {'　'.join(info_parts)}")
 
         with st.expander("🔍 QRデータ確認（デバッグ用）", expanded=False):
             st.write(f"**救急隊名候補（自動）:** `{data['team_name']}` ← 正しくない場合は下のリストから正しいインデックスを確認してください")
