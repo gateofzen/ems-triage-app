@@ -404,9 +404,9 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
         if res.get("main") in main_map:
             draw_maru(d, main_map[res["main"]], r=18)
         elif res.get("main") == "その他":
-            draw_maru(d, (1095, 1480), r=18)
+            draw_maru(d, (1083, 1510), r=18)
             if res.get("main_other"):
-                d.text((1095, 1500), res["main_other"].rstrip("科"), font=f18, fill="black")
+                d.text((1100, 1500), res["main_other"].rstrip("科"), font=f18, fill="black")
     else:
         # 不応需理由
         # テンプレート画像解析済みY座標（各行テキスト中央）
