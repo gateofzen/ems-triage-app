@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -7,6 +8,7 @@ import base64
 import io
 import os
 import json
+import urllib.parse
 from datetime import datetime
 
 st.set_page_config(page_title="トリアージ台帳自動作成", layout="centered")
@@ -495,29 +497,24 @@ if "action" in params and "key" in params:
 
 if records:
     st.subheader("📋 保存済み患者")
-    # 1行HTMLテーブルで表示
     rows_html = ""
     for idx, (key, rec) in enumerate(list(records.items()), start=1):
         outcome_str = rec.get("res", {}).get("out", "未記入")
         dt_str = rec.get("data", {}).get("dt_str", "")
-        # 名前のスペースを除去
         name = key.replace("　", "").replace(" ", "")
-        import urllib.parse
         edit_url = "?" + urllib.parse.urlencode({"action":"edit","key":key})
         del_url  = "?" + urllib.parse.urlencode({"action":"del", "key":key})
-        rows_html += f"""
-        <tr>
-          <td style="white-space:nowrap;padding:4px 3px;font-size:13px"><b>{idx}.{name}</b></td>
-          <td style="white-space:nowrap;padding:4px 2px;font-size:12px;color:#aaa">{dt_str}</td>
-          <td style="white-space:nowrap;padding:4px 2px;font-size:12px;color:#aaa">{outcome_str}</td>
-          <td style="padding:4px 2px"><a href="{edit_url}" style="background:#1a6;color:white;padding:3px 8px;border-radius:4px;font-size:12px;text-decoration:none">更新</a></td>
-          <td style="padding:4px 2px"><a href="{del_url}"  style="background:#a33;color:white;padding:3px 8px;border-radius:4px;font-size:12px;text-decoration:none">削除</a></td>
-        </tr>"""
-    st.markdown(f"""
-<table style="width:100%;border-collapse:collapse">
-{rows_html}
-</table>
-""", unsafe_allow_html=True)
+        rows_html += (
+            f'<tr>'
+            f'<td style="white-space:nowrap;font-size:13px;padding:4px 3px"><b>{idx}.{name}</b></td>'
+            f'<td style="white-space:nowrap;font-size:12px;padding:4px 2px;color:#666">{dt_str}</td>'
+            f'<td style="white-space:nowrap;font-size:12px;padding:4px 2px;color:#666">{outcome_str}</td>'
+            f'<td style="padding:4px 2px"><a href="{edit_url}" style="background:#1a7340;color:white;padding:3px 8px;border-radius:4px;font-size:12px;text-decoration:none;white-space:nowrap">更新</a></td>'
+            f'<td style="padding:4px 2px"><a href="{del_url}" style="background:#a33;color:white;padding:3px 8px;border-radius:4px;font-size:12px;text-decoration:none;white-space:nowrap">削除</a></td>'
+            f'</tr>'
+        )
+    html = f'<table style="width:100%;border-collapse:collapse">{rows_html}</table>'
+    components.html(html, height=len(records)*36+10, scrolling=False)
     st.divider()
 
 # ===== 転帰更新モード =====
