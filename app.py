@@ -199,7 +199,7 @@ def parse_qr(raw):
     }
 
 # ===== テンプレート描画 =====
-def render_triage(data, recorder, origin, history_yn, history_dept, decision, res, case_no, free_note=""):
+def render_triage(data, recorder, origin, shift, history_yn, history_dept, decision, res, case_no, free_note=""):
     base = Image.open("template.png").convert("RGB")
     d = ImageDraw.Draw(base)
 
@@ -225,6 +225,12 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
 
     # ===== 依頼日時 =====
     d.text((155, 145), data["dt_str"], font=f36, fill="black")
+
+    # ===== 日勤・夜勤 ◯ =====
+    if shift == "日勤":
+        draw_maru(d, (590, 165), r=20)
+    else:
+        draw_maru(d, (638, 170), r=20)
 
     # ===== 依頼元（救急隊名, V=676-911） =====
     origin_clean = origin.replace("救急隊", "").strip()
@@ -398,6 +404,92 @@ def render_triage(data, recorder, origin, history_yn, history_dept, decision, re
     return base
 
 # ===== メインUI =====
+
+# セッション状態初期化
+if "triage_records" not in st.session_state:
+    st.session_state.triage_records = {}   # key=患者名, value=dict
+if "triage_raw" not in st.session_state:
+    st.session_state.triage_raw = None
+if "editing_key" not in st.session_state:
+    st.session_state.editing_key = None
+
+# ===== 保存済み患者一覧 =====
+records = st.session_state.triage_records
+if records:
+    st.subheader("📋 保存済み患者")
+    for key, rec in list(records.items()):
+        col_a, col_b, col_c = st.columns([4, 1, 1])
+        outcome_str = rec.get("res", {}).get("out", "未記入")
+        with col_a:
+            st.write(f"**{key}**　{rec['data']['dt_str']}　転帰: {outcome_str}")
+        with col_b:
+            if st.button("転帰更新", key=f"edit_{key}"):
+                st.session_state.editing_key = key
+                st.rerun()
+        with col_c:
+            if st.button("削除", key=f"del_{key}"):
+                del st.session_state.triage_records[key]
+                if st.session_state.editing_key == key:
+                    st.session_state.editing_key = None
+                st.rerun()
+    st.divider()
+
+# ===== 転帰更新モード =====
+editing_key = st.session_state.editing_key
+if editing_key and editing_key in records:
+    rec = records[editing_key]
+    st.subheader(f"✏️ 転帰更新：{editing_key}")
+    data = rec["data"]
+    res = dict(rec.get("res", {}))
+    case_no = rec.get("case_no", 1)
+    shift = rec.get("shift", "日勤")
+    recorder = rec.get("recorder", "前川")
+    origin = rec.get("origin", "中央")
+    history_yn = rec.get("history_yn", "無")
+    history_dept = rec.get("history_dept", "")
+    free_note = rec.get("free_note", "")
+
+    decision = st.radio("判定", ["応需", "不応需"], horizontal=True,
+                        index=0 if res.get("decision","応需")=="応需" else 1)
+    if decision == "応需":
+        res["init"] = st.selectbox("初期対応した科", ["当直医", "救急科", "その他"],
+                                   index=["当直医","救急科","その他"].index(res.get("init","当直医")))
+        if res["init"] == "その他":
+            res["init_other"] = st.text_input("初期対応科名", value=res.get("init_other",""))
+        res["out"] = st.selectbox("最終転帰", ["入院", "帰宅", "その他"],
+                                  index=["入院","帰宅","その他"].index(res.get("out","入院")))
+        if res["out"] == "入院":
+            res["ward"] = st.selectbox("病棟", ["4東", "HCU", "ICU", "その他"],
+                                       index=["4東","HCU","ICU","その他"].index(res.get("ward","4東")))
+            if res["ward"] == "その他":
+                res["ward_other"] = st.text_input("病棟名", value=res.get("ward_other",""))
+            res["main"] = st.selectbox("主科", ["臨研", "救急科", "その他"],
+                                       index=["臨研","救急科","その他"].index(res.get("main","臨研")))
+            if res["main"] == "その他":
+                res["main_other"] = st.text_input("主科名", value=res.get("main_other",""))
+    free_note = st.text_area("自由記載", value=free_note, height=80)
+
+    col_gen, col_cancel = st.columns(2)
+    with col_gen:
+        if st.button("🖨️ 台帳を生成", type="primary", use_container_width=True):
+            res["decision"] = decision
+            records[editing_key]["res"] = res
+            records[editing_key]["free_note"] = free_note
+            result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
+                                   decision, res, case_no, free_note)
+            st.image(result, use_container_width=True)
+            buf = io.BytesIO()
+            result.save(buf, format="JPEG", quality=95)
+            st.download_button("📥 台帳を保存", buf.getvalue(),
+                               f"triage_{data['kanji']}.jpg", "image/jpeg")
+    with col_cancel:
+        if st.button("キャンセル", use_container_width=True):
+            st.session_state.editing_key = None
+            st.rerun()
+    st.stop()
+
+# ===== 新規患者入力 =====
+st.subheader("🆕 新規患者")
 uploaded = st.file_uploader(
     "📷 画像を選択（スクリーンショットまたはカメラ撮影）",
     type=["png", "jpg", "jpeg"],
@@ -405,22 +497,20 @@ uploaded = st.file_uploader(
 )
 
 if uploaded:
-    # カメラ撮影後に確実に処理を開始するための明示ボタン
     st.info("📌 画像をアップロードしました。下のボタンを押してQRコードを読み取ってください。")
     do_read = st.button("🔍 QRコードを読み取る", type="primary", use_container_width=True)
 
-    # セッション状態でデータを保持（ボタン押下後に他UIを操作しても消えない）
     if do_read:
         with st.spinner("QRコードを読み取り中..."):
             raw = decode_qr(uploaded)
         if raw is None:
             st.error("❌ QRコードが認識できませんでした。\n\n**対処法：**\n- QRコードを画面の中央に大きく写して再撮影\n- 明るい場所でピントを合わせてから撮影\n- スクリーンショット画像を使用")
-            st.session_state.pop("triage_raw", None)
+            st.session_state.triage_raw = None
         else:
-            st.session_state["triage_raw"] = raw
+            st.session_state.triage_raw = raw
             st.success("✅ QRコード読み取り成功！")
 
-    raw = st.session_state.get("triage_raw")
+    raw = st.session_state.triage_raw
 
     if raw:
         data = parse_qr(raw)
@@ -448,6 +538,7 @@ if uploaded:
 
         col1, col2 = st.columns(2)
         with col1:
+            shift = st.radio("勤務帯", ["日勤", "夜勤"], horizontal=True)
             case_no = st.selectbox("No.", list(range(1, 16)))
             recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
             origin = st.text_input("依頼元（救急隊）", value="中央")
@@ -462,49 +553,50 @@ if uploaded:
         data["complaint"] = complaint_edit
         free_note = st.text_area("自由記載", placeholder="自由記載欄へのコメントを入力", height=80)
 
-        res = {}
+        res = {"decision": decision}
         if decision == "応需":
             res["init"] = st.selectbox("初期対応した科", ["当直医", "救急科", "その他"])
             if res["init"] == "その他":
                 res["init_other"] = st.text_input("初期対応科名")
-            res["out"] = st.selectbox("最終転帰", ["入院", "帰宅", "その他"])
+            res["out"] = st.selectbox("最終転帰", ["（後で入力）", "入院", "帰宅", "その他"])
             if res["out"] == "入院":
-                res["ward"] = st.selectbox("病棟", ["4東", "HCU", "ICU", "その他"])
+                res["ward"] = st.selectbox("病棟", ["（後で入力）", "4東", "HCU", "ICU", "その他"])
                 if res["ward"] == "その他":
                     res["ward_other"] = st.text_input("病棟名")
-                res["main"] = st.selectbox("主科", ["臨研", "救急科", "その他"])
+                res["main"] = st.selectbox("主科", ["（後で入力）", "臨研", "救急科", "その他"])
                 if res["main"] == "その他":
                     res["main_other"] = st.text_input("主科名")
         else:
             res["reason"] = st.selectbox("不応需理由", [
-                "1. 緊急性なし",
-                "2. ベッド満床",
-                "3. 既定の応需不可",
-                "4. 対応可能な医師不在",
-                "5. 緊急手術制限中",
-                "6-A. 医師処置中",
-                "6-B. 看護師処置中",
-                "7. その他",
+                "1. 緊急性なし", "2. ベッド満床", "3. 既定の応需不可",
+                "4. 対応可能な医師不在", "5. 緊急手術制限中",
+                "6-A. 医師処置中", "6-B. 看護師処置中", "7. その他",
             ])
-            # 理由2: ベッド満床のサブ選択肢
             if res["reason"].startswith("2."):
-                res["bed_sub"] = st.radio(
-                    "ベッド満床の場所",
-                    ["救急外来", "HCU", "4東", "その他"],
-                    horizontal=True
-                )
-            # 理由3-6B: フリーコメント入力
+                res["bed_sub"] = st.radio("ベッド満床の場所",
+                    ["救急外来", "HCU", "4東", "その他"], horizontal=True)
             if any(res["reason"].startswith(p) for p in ["3.", "4.", "5.", "6-A.", "6-B."]):
-                res["reason_comment"] = st.text_input("コメント（理由の右欄）", placeholder="例：循環器科対応中")
+                res["reason_comment"] = st.text_input("コメント（理由の右欄）")
 
-        if st.button("🖨️ 台帳を生成", type="primary"):
-            result = render_triage(data, recorder, origin, history_yn, history_dept, decision, res, case_no, free_note)
-            st.image(result, use_container_width=True)
-            buf = io.BytesIO()
-            result.save(buf, format="JPEG", quality=95)
-            st.download_button(
-                "📥 台帳を保存",
-                buf.getvalue(),
-                f"triage_{data['kanji']}.jpg",
-                "image/jpeg"
-            )
+        col_save, col_gen = st.columns(2)
+        with col_save:
+            if st.button("💾 患者データを保存（転帰は後で入力）", use_container_width=True):
+                key = data["kanji"] or data["kana"] or "不明"
+                st.session_state.triage_records[key] = {
+                    "data": data, "shift": shift, "case_no": case_no,
+                    "recorder": recorder, "origin": origin,
+                    "history_yn": history_yn, "history_dept": history_dept,
+                    "decision": decision, "res": res, "free_note": free_note,
+                }
+                st.session_state.triage_raw = None
+                st.success(f"✅ {key} のデータを保存しました。後から「転帰更新」で完成させてください。")
+                st.rerun()
+        with col_gen:
+            if st.button("🖨️ 今すぐ台帳を生成", type="primary", use_container_width=True):
+                result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
+                                       decision, res, case_no, free_note)
+                st.image(result, use_container_width=True)
+                buf = io.BytesIO()
+                result.save(buf, format="JPEG", quality=95)
+                st.download_button("📥 台帳を保存", buf.getvalue(),
+                                   f"triage_{data['kanji']}.jpg", "image/jpeg")
