@@ -390,7 +390,7 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
             draw_maru(d, (340, 1461), r=16)
 
         # 病棟
-        ward_map = {"4東": (784, 1466), "HCU": (861, 1466), "ICU": (943, 1466)}
+        ward_map = {"4東": (784, 1466), "6東": (784, 1490), "HCU": (861, 1466), "ICU": (943, 1466)}
         if res.get("ward") in ward_map:
             draw_maru(d, ward_map[res["ward"]], r=18)
         elif res.get("ward") == "その他" and res.get("ward_other"):
@@ -588,7 +588,7 @@ if editing_key and editing_key in records:
         cur_out = res.get("out","") if res.get("out") in out_opts else "入院"
         res["out"] = st.selectbox("最終転帰", out_opts, index=out_opts.index(cur_out))
         if res["out"] == "入院":
-            ward_opts = ["4東", "HCU", "ICU", "その他"]
+            ward_opts = ["4東", "6東", "HCU", "ICU", "その他"]
             cur_ward = res.get("ward","") if res.get("ward") in ward_opts else "4東"
             res["ward"] = st.selectbox("病棟", ward_opts, index=ward_opts.index(cur_ward))
             if res["ward"] == "その他":
@@ -724,7 +724,7 @@ if has_file:
                 res["init_other"] = st.text_input("初期対応科名")
             res["out"] = st.selectbox("最終転帰", ["（後で入力）", "入院", "帰宅", "その他"])
             if res["out"] == "入院":
-                res["ward"] = st.selectbox("病棟", ["（後で入力）", "4東", "HCU", "ICU", "その他"])
+                res["ward"] = st.selectbox("病棟", ["（後で入力）", "4東", "6東", "HCU", "ICU", "その他"])
                 if res["ward"] == "その他":
                     res["ward_other"] = st.text_input("病棟名")
                 res["main"] = st.selectbox("主科", ["（後で入力）", "臨研", "救急科", "その他"])
