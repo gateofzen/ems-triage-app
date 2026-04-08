@@ -691,7 +691,11 @@ if has_file:
             next_no = min(next_no, 15)
             default_idx = next_no - 1  # selectboxのindex（0始まり）
             case_no = st.selectbox("No.", list(range(1, 16)), index=default_idx)
-            recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
+            if "last_recorder" not in st.session_state:
+                st.session_state.last_recorder = "前川"
+            recorders = ["前川", "森木", "小舘", "遠藤"]
+            rec_idx = recorders.index(st.session_state.last_recorder) if st.session_state.last_recorder in recorders else 0
+            recorder = st.selectbox("記載者", recorders, index=rec_idx)
             origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
             history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
         with col2:
@@ -740,6 +744,7 @@ if has_file:
                     "decision": decision, "res": res, "free_note": free_note,
                 }
                 save_records(st.session_state.triage_records)
+                st.session_state.last_recorder = recorder
                 st.session_state.triage_raw = None
                 st.session_state.uploader_key += 1
                 st.session_state.uploaded_bytes = None
