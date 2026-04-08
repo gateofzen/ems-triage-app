@@ -226,11 +226,11 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
     # ===== 依頼日時 =====
     d.text((155, 145), data["dt_str"], font=f36, fill="black")
 
-    # ===== 日勤・夜勤 ◯ =====
+    # ===== 日勤・夜勤 ◯（依頼日時ラベル内 Y≈163, 日勤X≈67, 夜勤X≈118）=====
     if shift == "日勤":
-        draw_maru(d, (590, 165), r=20)
+        draw_maru(d, (67, 163), r=18)
     else:
-        draw_maru(d, (638, 170), r=20)
+        draw_maru(d, (118, 163), r=18)
 
     # ===== 依頼元（救急隊名, V=676-911） =====
     origin_clean = origin.replace("救急隊", "").strip()
