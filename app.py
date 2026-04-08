@@ -6,9 +6,44 @@ import pyzbar.pyzbar as pyzbar
 import base64
 import io
 import os
+import json
 from datetime import datetime
 
 st.set_page_config(page_title="トリアージ台帳自動作成", layout="centered")
+st.title("🚑 トリアージ台帳自動作成")
+
+# ===== 日勤・夜勤の自動判定 =====
+def detect_shift(dt_str):
+    """8:30-16:30 = 日勤、それ以外 = 夜勤"""
+    try:
+        # dt_strは "4/8（水）17:40" 形式
+        time_part = dt_str.split("）")[-1].strip()
+        h, m = map(int, time_part.split(":"))
+        minutes = h * 60 + m
+        if 8 * 60 + 30 <= minutes < 16 * 60 + 30:
+            return "日勤"
+        return "夜勤"
+    except Exception:
+        return "夜勤"
+
+# ===== ファイル永続化 =====
+RECORDS_FILE = "triage_records.json"
+
+def load_records():
+    if os.path.exists(RECORDS_FILE):
+        try:
+            with open(RECORDS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_records(records):
+    try:
+        with open(RECORDS_FILE, "w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 st.title("🚑 トリアージ台帳自動作成")
 
 # ===== フォントパス =====
@@ -226,11 +261,11 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
     # ===== 依頼日時 =====
     d.text((155, 145), data["dt_str"], font=f36, fill="black")
 
-    # ===== 日勤・夜勤 ◯（依頼日時ラベル内 Y≈163, 日勤X≈67, 夜勤X≈118）=====
+    # ===== 日勤・夜勤 ◯（(日勤・夜勤)テキスト Y≈185, 日勤X≈57, 夜勤X≈107）=====
     if shift == "日勤":
-        draw_maru(d, (67, 163), r=18)
+        draw_maru(d, (57, 185), r=15)
     else:
-        draw_maru(d, (118, 163), r=18)
+        draw_maru(d, (107, 185), r=15)
 
     # ===== 依頼元（救急隊名, V=676-911） =====
     origin_clean = origin.replace("救急隊", "").strip()
@@ -405,9 +440,9 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
 
 # ===== メインUI =====
 
-# セッション状態初期化
+# セッション状態初期化（ページリロード時はファイルから復元）
 if "triage_records" not in st.session_state:
-    st.session_state.triage_records = {}   # key=患者名, value=dict
+    st.session_state.triage_records = load_records()
 if "triage_raw" not in st.session_state:
     st.session_state.triage_raw = None
 if "editing_key" not in st.session_state:
@@ -420,8 +455,9 @@ if records:
     for key, rec in list(records.items()):
         col_a, col_b, col_c = st.columns([4, 1, 1])
         outcome_str = rec.get("res", {}).get("out", "未記入")
+        shift_str = rec.get("shift", "")
         with col_a:
-            st.write(f"**{key}**　{rec['data']['dt_str']}　転帰: {outcome_str}")
+            st.write(f"**{key}**　{rec['data']['dt_str']}（{shift_str}）　転帰: {outcome_str}")
         with col_b:
             if st.button("転帰更新", key=f"edit_{key}"):
                 st.session_state.editing_key = key
@@ -429,6 +465,7 @@ if records:
         with col_c:
             if st.button("削除", key=f"del_{key}"):
                 del st.session_state.triage_records[key]
+                save_records(st.session_state.triage_records)
                 if st.session_state.editing_key == key:
                     st.session_state.editing_key = None
                 st.rerun()
@@ -449,6 +486,7 @@ if editing_key and editing_key in records:
     history_dept = rec.get("history_dept", "")
     free_note = rec.get("free_note", "")
 
+    st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**")
     decision = st.radio("判定", ["応需", "不応需"], horizontal=True,
                         index=0 if res.get("decision","応需")=="応需" else 1)
     if decision == "応需":
@@ -475,6 +513,7 @@ if editing_key and editing_key in records:
             res["decision"] = decision
             records[editing_key]["res"] = res
             records[editing_key]["free_note"] = free_note
+            save_records(st.session_state.triage_records)
             result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
                                    decision, res, case_no, free_note)
             st.image(result, use_container_width=True)
@@ -515,6 +554,10 @@ if uploaded:
     if raw:
         data = parse_qr(raw)
 
+        # 受付時刻から勤務帯を自動判定
+        shift = detect_shift(data["dt_str"])
+        st.info(f"🕐 受付時刻: {data['dt_str']}　→ 勤務帯: **{shift}**（8:30-16:30=日勤、それ以外=夜勤）")
+
         with st.expander("🔍 QRデータ確認（デバッグ用）", expanded=False):
             for i, v in enumerate(data["items"]):
                 label = ""
@@ -538,7 +581,6 @@ if uploaded:
 
         col1, col2 = st.columns(2)
         with col1:
-            shift = st.radio("勤務帯", ["日勤", "夜勤"], horizontal=True)
             case_no = st.selectbox("No.", list(range(1, 16)))
             recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
             origin = st.text_input("依頼元（救急隊）", value="中央")
@@ -588,8 +630,9 @@ if uploaded:
                     "history_yn": history_yn, "history_dept": history_dept,
                     "decision": decision, "res": res, "free_note": free_note,
                 }
+                save_records(st.session_state.triage_records)
                 st.session_state.triage_raw = None
-                st.success(f"✅ {key} のデータを保存しました。後から「転帰更新」で完成させてください。")
+                st.success(f"✅ {key}（{shift}）のデータを保存しました。")
                 st.rerun()
         with col_gen:
             if st.button("🖨️ 今すぐ台帳を生成", type="primary", use_container_width=True):
