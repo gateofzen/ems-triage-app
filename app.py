@@ -460,6 +460,8 @@ if "triage_raw" not in st.session_state:
     st.session_state.triage_raw = None
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
+if "uploaded_bytes" not in st.session_state:
+    st.session_state.uploaded_bytes = None
 if "editing_key" not in st.session_state:
     st.session_state.editing_key = None
 
@@ -551,11 +553,23 @@ uploaded = st.file_uploader(
     key=f"uploader_{st.session_state.uploader_key}"
 )
 
-if uploaded:
+# アップロードされたファイルのバイトをセッションに保持（モバイルでのリロード対策）
+if uploaded is not None:
+    st.session_state.uploaded_bytes = uploaded.read()
+    uploaded.seek(0)
+
+# セッションに保存済みのファイルを使う
+has_file = uploaded is not None or st.session_state.get("uploaded_bytes") is not None
+
+if has_file:
     # まだ読み取っていない場合のみデコード実行
     if st.session_state.triage_raw is None:
         with st.spinner("QRコードを読み取り中..."):
-            raw = decode_qr(uploaded)
+            if uploaded is not None:
+                raw = decode_qr(uploaded)
+            else:
+                import io
+                raw = decode_qr(io.BytesIO(st.session_state.uploaded_bytes))
         if raw is None:
             st.error("❌ QRコードが認識できませんでした。\n\n**対処法：**\n- QRコードを画面の中央に大きく写して再撮影\n- 明るい場所でピントを合わせてから撮影\n- スクリーンショット画像を使用")
         else:
@@ -596,7 +610,7 @@ if uploaded:
         col1, col2 = st.columns(2)
         with col1:
             case_no = st.selectbox("No.", list(range(1, 16)))
-            recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤","提嶋"])
+            recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
             origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
             history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
         with col2:
@@ -647,6 +661,7 @@ if uploaded:
                 save_records(st.session_state.triage_records)
                 st.session_state.triage_raw = None
                 st.session_state.uploader_key += 1
+                st.session_state.uploaded_bytes = None
                 st.success(f"✅ {key}（{shift}）のデータを保存しました。")
                 st.rerun()
         with col_gen:
