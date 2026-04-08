@@ -640,21 +640,24 @@ if editing_key and editing_key in records:
 
 # ===== 新規患者入力 =====
 st.subheader("🆕 新規患者")
-st.subheader("🆕 新規患者")
 
 # 手入力モード切替
 if "manual_mode" not in st.session_state:
     st.session_state.manual_mode = False
+if "input_mode" not in st.session_state:
+    st.session_state.input_mode = None  # None, "qr", "manual"
 
 col_qr, col_manual = st.columns(2)
 with col_qr:
     if st.button("📷 QRコード読み取り", use_container_width=True,
-                 type="secondary" if st.session_state.manual_mode else "primary"):
+                 type="primary" if st.session_state.input_mode == "qr" else "secondary"):
+        st.session_state.input_mode = "qr"
         st.session_state.manual_mode = False
         st.rerun()
 with col_manual:
     if st.button("✍️ 手入力", use_container_width=True,
-                 type="primary" if st.session_state.manual_mode else "secondary"):
+                 type="primary" if st.session_state.input_mode == "manual" else "secondary"):
+        st.session_state.input_mode = "manual"
         st.session_state.manual_mode = True
         st.session_state.triage_raw = None
         st.session_state.uploaded_bytes = None
@@ -790,6 +793,7 @@ if st.session_state.manual_mode:
                 st.session_state._manual_data = None
                 st.session_state.triage_raw = None
                 st.session_state.manual_mode = False
+                st.session_state.input_mode = None
                 st.success(f"✅ {key} を保存しました。")
                 st.rerun()
         with ms2:
@@ -803,7 +807,7 @@ if st.session_state.manual_mode:
                                    f"triage_{data['kanji'] or 'manual'}.jpg", "image/jpeg", key="m_dl")
 
 # ===== QRコードモード =====
-if not st.session_state.manual_mode:
+if st.session_state.input_mode == "qr":
     uploaded = st.file_uploader(
         "📷 画像を選択（スクリーンショットまたはカメラ撮影）",
         type=["png", "jpg", "jpeg"],
@@ -931,6 +935,7 @@ if not st.session_state.manual_mode:
                     st.session_state.triage_raw = None
                     st.session_state.uploader_key += 1
                     st.session_state.uploaded_bytes = None
+                    st.session_state.input_mode = None
                     st.success(f"✅ {key}（{shift}）のデータを保存しました。")
                     st.rerun()
             with col_gen:
