@@ -212,6 +212,24 @@ def parse_qr(raw):
                 complaint = history_text.split(sep)[0]
                 break
 
+    # 救急隊名（インデックス[2]または[3]から抽出 - "救急隊"を含む項目を検索）
+    team_name = ""
+    for idx in [2, 3, 6, 7, 0]:
+        v = safe(idx)
+        if "救急" in v or "隊" in v:
+            # "中央救急隊" → "中央" などに整形
+            team_name = v.replace("救急隊", "").replace("救急", "").strip()
+            break
+    # 見つからない場合は短い非数字テキストを候補に
+    if not team_name:
+        for idx in range(len(items)):
+            v = safe(idx)
+            if 2 <= len(v) <= 6 and not v.isdigit() and idx not in [4, 5, 8, 9, 13, 14, 15]:
+                # 漢字のみで短いテキスト
+                if all('\u4e00' <= c <= '\u9fff' or '\u3000' <= c <= '\u30ff' for c in v if c.strip()):
+                    team_name = v.replace("救急隊", "").strip()
+                    break
+
     return {
         "kanji": kanji,
         "kana": kana,
@@ -230,6 +248,7 @@ def parse_qr(raw):
         "rr": safe(22),
         "bt": safe(23),
         "spo2": safe(24),
+        "team_name": team_name,
         "items": items,
     }
 
@@ -559,6 +578,7 @@ if uploaded:
         st.info(f"🕐 受付時刻: {data['dt_str']}　→ 勤務帯: **{shift}**（8:30-16:30=日勤、それ以外=夜勤）")
 
         with st.expander("🔍 QRデータ確認（デバッグ用）", expanded=False):
+            st.write(f"**救急隊名候補:** `{data['team_name']}`")
             for i, v in enumerate(data["items"]):
                 label = ""
                 if i == 1: label = "← 依頼日時"
@@ -583,7 +603,7 @@ if uploaded:
         with col1:
             case_no = st.selectbox("No.", list(range(1, 16)))
             recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
-            origin = st.text_input("依頼元（救急隊）", value="中央")
+            origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
             history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
         with col2:
             history_dept = ""
