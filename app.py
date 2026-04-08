@@ -473,17 +473,19 @@ if records:
         outcome_str = rec.get("res", {}).get("out", "未記入")
         shift_str = rec.get("shift", "")
         dt_str = rec.get("data", {}).get("dt_str", "")
-        col_no, col_info, col_b, col_c = st.columns([0.5, 5, 1, 1])
-        with col_no:
-            st.markdown(f"**{idx}**")
-        with col_info:
-            st.write(f"**{key}**　{dt_str}（{shift_str}）　転帰: {outcome_str}")
-        with col_b:
-            if st.button("更新", key=f"edit_{key}"):
+        # 情報を1行で表示
+        st.markdown(
+            f"**{idx}. {key}**　{dt_str}（{shift_str}）　転帰: {outcome_str}",
+            unsafe_allow_html=False
+        )
+        # ボタンのみ2列（コンパクト）
+        b1, b2, _ = st.columns([1, 1, 4])
+        with b1:
+            if st.button("✏️更新", key=f"edit_{key}", use_container_width=True):
                 st.session_state.editing_key = key
                 st.rerun()
-        with col_c:
-            if st.button("削除", key=f"del_{key}"):
+        with b2:
+            if st.button("🗑削除", key=f"del_{key}", use_container_width=True):
                 del st.session_state.triage_records[key]
                 save_records(st.session_state.triage_records)
                 if st.session_state.editing_key == key:
