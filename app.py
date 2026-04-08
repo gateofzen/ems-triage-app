@@ -596,7 +596,7 @@ if uploaded:
         col1, col2 = st.columns(2)
         with col1:
             case_no = st.selectbox("No.", list(range(1, 16)))
-            recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤"])
+            recorder = st.selectbox("記載者", ["前川", "森木", "小舘", "遠藤","提嶋"])
             origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
             history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
         with col2:
