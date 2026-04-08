@@ -390,9 +390,12 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
             draw_maru(d, (340, 1461), r=16)
 
         # 病棟
-        ward_map = {"4東": (784, 1466), "6東": (784, 1490), "HCU": (861, 1466), "ICU": (943, 1466)}
+        ward_map = {"4東": (784, 1466), "HCU": (861, 1466), "ICU": (943, 1466)}
         if res.get("ward") in ward_map:
             draw_maru(d, ward_map[res["ward"]], r=18)
+        elif res.get("ward") == "6東":
+            draw_maru(d, (784, 1490), r=18)
+            d.text((806, 1480), "6東", font=f18, fill="black")
         elif res.get("ward") == "その他" and res.get("ward_other"):
             d.text((840, 1480), res["ward_other"], font=f18, fill="black")
 
@@ -559,6 +562,8 @@ if editing_key and editing_key in records:
     st.subheader(f"✏️ 転帰更新：{display}")
     res = dict(rec.get("res", {}))
     case_no = rec.get("case_no", 1)
+    case_no = st.selectbox("No.", list(range(1, 16)),
+                           index=int(case_no)-1 if 1 <= int(case_no) <= 15 else 0)
     shift = rec.get("shift", "日勤")
     recorder = rec.get("recorder", "前川")
     origin = rec.get("origin", "中央")
@@ -606,6 +611,7 @@ if editing_key and editing_key in records:
             res["decision"] = decision
             records[editing_key]["res"] = res
             records[editing_key]["free_note"] = free_note
+            records[editing_key]["case_no"] = case_no
             save_records(st.session_state.triage_records)
             st.session_state.editing_key = None
             st.success("保存しました")
@@ -615,6 +621,7 @@ if editing_key and editing_key in records:
             res["decision"] = decision
             records[editing_key]["res"] = res
             records[editing_key]["free_note"] = free_note
+            records[editing_key]["case_no"] = case_no
             save_records(st.session_state.triage_records)
             result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
                                    decision, res, case_no, free_note)
