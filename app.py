@@ -497,6 +497,10 @@ if "action" in params and "key" in params:
 
 if records:
     st.subheader("📋 保存済み患者")
+    st.markdown("""<style>
+    [data-testid="stHorizontalBlock"]>div{min-width:0!important}
+    [data-testid="stHorizontalBlock"] button{padding:2px 8px!important;font-size:12px!important;min-height:28px!important;height:28px!important;line-height:1!important}
+    </style>""", unsafe_allow_html=True)
     for idx, (key, rec) in enumerate(list(records.items()), start=1):
         outcome_str = rec.get("res", {}).get("out", "未記入")
         dt_str = rec.get("data", {}).get("dt_str", "")
