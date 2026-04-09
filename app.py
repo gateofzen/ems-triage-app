@@ -558,7 +558,7 @@ if records:
     # 台帳一括生成ボタン
     hide_name_opt = st.checkbox(
         "🔒 PDFの患者氏名を空欄にする（印刷後に手書き記入・プライバシー保護）",
-        value=False, key="hide_name_opt"
+        value=True, key="hide_name_opt"
     )
     if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
         all_records = st.session_state.triage_records
@@ -701,7 +701,7 @@ if editing_key and editing_key in records:
         g_cur = "1（男）" if data.get("gender")=="1" else ("2（女）" if data.get("gender")=="2" else "未記載")
         e_gender_sel = st.radio("性別", gender_opts, index=gender_opts.index(g_cur), horizontal=True, key="ed_gender")
     with ec2:
-        recorders = ["前川", "森木", "小舘", "遠藤"]
+        recorders = ["前川", "森木", "小舘", "遠藤", "提嶋"]
         rec_idx = recorders.index(rec.get("recorder","前川")) if rec.get("recorder") in recorders else 0
         e_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="ed_recorder")
         RESCUE_TEAMS_E = ["","中央","大通","桑園","山鼻","北","篠路","新光","東","栄","東苗穂",
@@ -937,7 +937,7 @@ if st.session_state.manual_mode:
             next_no = (max(used_nos) + 1) if used_nos else 1
             _def_no = int(data.get("_case_no", min(next_no,15)))
             case_no = st.selectbox("No.", list(range(1, 16)), index=_def_no-1, key="m_case_no")
-            recorders = ["前川", "森木", "小舘", "遠藤"]
+            recorders = ["前川", "森木", "小舘", "遠藤", "提嶋"]
             rec_idx = recorders.index(st.session_state.get("last_recorder","前川")) if st.session_state.get("last_recorder") in recorders else 0
             recorder = st.selectbox("記載者", recorders, index=rec_idx, key="m_recorder")
             origin = st.text_input("依頼元（救急隊）", value=data.get("team_name","中央"), key="m_origin")
