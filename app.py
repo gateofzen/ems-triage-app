@@ -598,13 +598,14 @@ if records:
         _body = "トリアージ台帳を添付します。\n\n"
         for fname, _ in st.session_state.bulk_images:
             _body += f"・{fname}\n"
-        _body += "\n※各台帳画像をダウンロードして添付してください。"
-        _gmail_url = "https://mail.google.com/mail/?view=cm&fs=1&su=" + _up.quote(_subject) + "&body=" + _up.quote(_body)
+        _body += "\n※PDFをダウンロードして添付してください。"
+        # mailto: スキームはAndroidでGmailアプリを直接起動する
+        _mailto = "mailto:?subject=" + _up.quote(_subject) + "&body=" + _up.quote(_body)
         st.markdown(
-            f'<a href="{_gmail_url}" target="_blank" style="display:block;text-align:center;background:#1a73e8;color:white;padding:10px;border-radius:6px;text-decoration:none;font-size:15px">📧 Gmailの作成画面を開く（宛名未設定）</a>',
+            f'<a href="{_mailto}" style="display:block;text-align:center;background:#1a73e8;color:white;padding:12px;border-radius:6px;text-decoration:none;font-size:15px">📧 Gmailで送信（宛名未設定）</a>',
             unsafe_allow_html=True
         )
-        st.caption("※ 台帳画像は上の各「📥 保存」ボタンでダウンロードし、メールに添付してください。")
+        st.caption("※ AndroidではGmailアプリが起動します。PDFをダウンロード後に添付して送信してください。")
 
     st.divider()
     # 一括削除ボタン（確認あり）
