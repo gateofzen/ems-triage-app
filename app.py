@@ -570,23 +570,41 @@ if records:
             st.session_state.bulk_images = all_images
             st.success(f"✅ {len(all_images)}件の台帳を生成しました。")
 
-    # 一括PDFダウンロード
+    # 一括PDFダウンロード（A4・余白付き）
     if st.session_state.get("bulk_images"):
         try:
+            from reportlab.pdfgen import canvas as rl_canvas
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.utils import ImageReader
             from PIL import Image as PILImage
+
+            A4_W, A4_H = A4
+            MARGIN = 28  # 10mm余白
+            avail_w = A4_W - 2*MARGIN
+            avail_h = A4_H - 2*MARGIN
+
             pdf_buf = io.BytesIO()
-            imgs = [PILImage.open(io.BytesIO(b)).convert("RGB") for _, b in st.session_state.bulk_images]
-            imgs[0].save(pdf_buf, format="PDF", save_all=True, append_images=imgs[1:])
+            c = rl_canvas.Canvas(pdf_buf, pagesize=A4)
+            for _, img_bytes in st.session_state.bulk_images:
+                img = PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
+                iw, ih = img.size
+                scale = min(avail_w/iw, avail_h/ih)
+                pw, ph = iw*scale, ih*scale
+                x = MARGIN + (avail_w - pw) / 2
+                y = MARGIN + (avail_h - ph) / 2
+                img_buf = io.BytesIO()
+                img.save(img_buf, format="JPEG", quality=95)
+                img_buf.seek(0)
+                c.drawImage(ImageReader(img_buf), x, y, width=pw, height=ph)
+                c.showPage()
+            c.save()
             pdf_buf.seek(0)
             from datetime import date
             pdf_name = f"triage_{date.today().strftime('%Y%m%d')}.pdf"
             st.download_button(
-                "📄 全台帳を1つのPDFで保存",
-                pdf_buf.getvalue(),
-                pdf_name,
-                "application/pdf",
-                use_container_width=True,
-                type="primary"
+                "📄 全台帳を1つのPDFで保存（A4印刷用）",
+                pdf_buf.getvalue(), pdf_name, "application/pdf",
+                use_container_width=True, type="primary"
             )
         except Exception as e:
             st.error(f"PDF生成エラー: {e}")
