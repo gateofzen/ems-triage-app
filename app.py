@@ -373,7 +373,7 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
         d.text((1200, 588), o2_flow, font=f28, fill="black")
         # デバイス名（流量の下に小さく）
         if o2_device:
-            d.text((1130, 630), o2_device, font=f22, fill="black")
+            d.text((1130, 630), o2_device, font=f18, fill="black")
     else:
         draw_maru(d, (1090, 665), r=16)
 
