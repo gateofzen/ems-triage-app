@@ -506,17 +506,19 @@ if records:
     [data-testid="stHorizontalBlock"]>div{min-width:0!important}
     [data-testid="stHorizontalBlock"] button{padding:2px 8px!important;font-size:12px!important;min-height:28px!important;height:28px!important;line-height:1!important}
     </style>""", unsafe_allow_html=True)
-    for idx, (key, rec) in enumerate(list(records.items()), start=1):
+    # case_noでソート
+    sorted_records = sorted(records.items(), key=lambda x: int(x[1].get("case_no", 99)))
+    for key, rec in sorted_records:
         outcome_str = rec.get("res", {}).get("out", "未記入")
         dt_str = rec.get("data", {}).get("dt_str", "")
-        # ふりがなを表示名に使用
+        case_no_disp = rec.get("case_no", "?")
         kana = rec.get("data", {}).get("kana", "").replace("　","").replace(" ","")
         display_name = kana if kana else key.replace("　","").replace(" ","")
         ci, ce, cd = st.columns([6, 1, 1])
         with ci:
             st.markdown(
                 f"<div style='font-size:14px;padding:3px 0'>"
-                f"<b>{idx}.{display_name}</b> {dt_str} 転帰:{outcome_str}</div>",
+                f"<b>{case_no_disp}.{display_name}</b> {dt_str} 転帰:{outcome_str}</div>",
                 unsafe_allow_html=True)
         with ce:
             if st.button("編集", key=f"edit_{key}"):
