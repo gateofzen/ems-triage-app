@@ -570,40 +570,41 @@ if records:
             st.session_state.bulk_images = all_images
             st.success(f"✅ {len(all_images)}件の台帳を生成しました。")
 
-    # Gmail送信ボタン
+    # 一括PDFダウンロード
+    if st.session_state.get("bulk_images"):
+        try:
+            from PIL import Image as PILImage
+            pdf_buf = io.BytesIO()
+            imgs = [PILImage.open(io.BytesIO(b)).convert("RGB") for _, b in st.session_state.bulk_images]
+            imgs[0].save(pdf_buf, format="PDF", save_all=True, append_images=imgs[1:])
+            pdf_buf.seek(0)
+            from datetime import date
+            pdf_name = f"triage_{date.today().strftime('%Y%m%d')}.pdf"
+            st.download_button(
+                "📄 全台帳を1つのPDFで保存",
+                pdf_buf.getvalue(),
+                pdf_name,
+                "application/pdf",
+                use_container_width=True,
+                type="primary"
+            )
+        except Exception as e:
+            st.error(f"PDF生成エラー: {e}")
     if st.session_state.get("bulk_images"):
         st.divider()
         st.markdown("**📧 Gmailで送信**")
-        import base64
-        if st.button("📧 台帳をGmailで送信（宛名未設定）", use_container_width=True):
-            import base64 as b64
-            # メール本文
-            subject = f"トリアージ台帳 {len(st.session_state.bulk_images)}件"
-            body = "トリアージ台帳を添付します。\n\n"
-            for fname, _ in st.session_state.bulk_images:
-                body += f"・{fname}\n"
-
-            # Gmail MCP経由で下書き作成
-            try:
-                import anthropic
-                client = anthropic.Anthropic()
-                # 添付ファイルをbase64エンコード
-                attachments_info = "\n".join([f"ファイル名: {fn}" for fn, _ in st.session_state.bulk_images])
-                prompt = f"""以下の内容でGmailの下書きメールを作成してください。
-件名: {subject}
-本文: {body}
-宛先: 未設定（空欄のまま）
-添付ファイル情報: {attachments_info}
-※添付ファイルは別途手動で追加が必要です。下書きを作成してください。"""
-                response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=1000,
-                    messages=[{"role":"user","content":prompt}],
-                    mcp_servers=[{"type":"url","url":"https://gmail.mcp.claude.com/mcp","name":"gmail"}]
-                )
-                st.success("✅ Gmailの下書きを作成しました。Gmailを開いて宛先を設定し送信してください。")
-            except Exception as e:
-                st.error(f"Gmail送信エラー: {e}")
+        import urllib.parse as _up
+        _subject = f"トリアージ台帳 {len(st.session_state.bulk_images)}件"
+        _body = "トリアージ台帳を添付します。\n\n"
+        for fname, _ in st.session_state.bulk_images:
+            _body += f"・{fname}\n"
+        _body += "\n※各台帳画像をダウンロードして添付してください。"
+        _gmail_url = "https://mail.google.com/mail/?view=cm&fs=1&su=" + _up.quote(_subject) + "&body=" + _up.quote(_body)
+        st.markdown(
+            f'<a href="{_gmail_url}" target="_blank" style="display:block;text-align:center;background:#1a73e8;color:white;padding:10px;border-radius:6px;text-decoration:none;font-size:15px">📧 Gmailの作成画面を開く（宛名未設定）</a>',
+            unsafe_allow_html=True
+        )
+        st.caption("※ 台帳画像は上の各「📥 保存」ボタンでダウンロードし、メールに添付してください。")
 
     st.divider()
     # 一括削除ボタン（確認あり）
