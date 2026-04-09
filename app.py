@@ -262,7 +262,7 @@ def parse_qr(raw):
     }
 
 # ===== テンプレート描画 =====
-def render_triage(data, recorder, origin, shift, history_yn, history_dept, decision, res, case_no, free_note=""):
+def render_triage(data, recorder, origin, shift, history_yn, history_dept, decision, res, case_no, free_note="", hide_name=False):
     base = Image.open("template.png").convert("RGB")
     d = ImageDraw.Draw(base)
 
@@ -311,8 +311,9 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
     cell_w_name = 543 - 135
     kw = getlength(data["kanji"], f44)
     kx = 135 + (cell_w_name - kw) // 2
-    d.text((kx, 245), data["kana"], font=f18, fill="black")
-    d.text((kx, 268), data["kanji"], font=f44, fill="black")
+    if not hide_name:
+        d.text((kx, 245), data["kana"], font=f18, fill="black")
+        d.text((kx, 268), data["kanji"], font=f44, fill="black")
 
     f30 = get_font(30)
 
@@ -555,6 +556,10 @@ if records:
                 st.rerun()
 
     # 台帳一括生成ボタン
+    hide_name_opt = st.checkbox(
+        "🔒 PDFの患者氏名を空欄にする（印刷後に手書き記入・プライバシー保護）",
+        value=False, key="hide_name_opt"
+    )
     if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
         all_records = st.session_state.triage_records
         if all_records:
@@ -576,7 +581,8 @@ if records:
                 display = kana if kana else key
                 st.write(f"**{case_no}. {display}**")
                 result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
-                                       decision, res, case_no, free_note)
+                                       decision, res, case_no, free_note,
+                                       hide_name=hide_name_opt)
                 st.image(result, use_container_width=True)
                 buf = io.BytesIO()
                 result.save(buf, format="JPEG", quality=95)
@@ -1076,7 +1082,7 @@ if st.session_state.input_mode == "qr":
                 case_no = st.selectbox("No.", list(range(1, 16)), index=next_no-1)
                 if "last_recorder" not in st.session_state:
                     st.session_state.last_recorder = "前川"
-                recorders = ["前川", "森木", "小舘", "遠藤"]
+                recorders = ["前川", "森木", "小舘", "遠藤", "提嶋"]
                 rec_idx = recorders.index(st.session_state.last_recorder) if st.session_state.last_recorder in recorders else 0
                 recorder = st.selectbox("記載者", recorders, index=rec_idx)
                 origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
