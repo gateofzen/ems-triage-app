@@ -248,9 +248,8 @@ def parse_qr(raw):
         "complaint": complaint,
         "history": safe(9),
         "jcs": safe(15),
-        "o2_use": safe(16),   # 酸素投与: 空=なし、数値あり=あり
-        "o2_flow": safe(17),  # 酸素流量 (L/min)
-        "o2_device": safe(18),# 酸素デバイス種別
+        "o2_flow": safe(44),    # 酸素流量 (L/min)
+        "o2_device": safe(45),  # 酸素デバイス（リザーバーマスク等）
         "bp_s": safe(19),
         "bp_d": safe(20),
         "hr": safe(21),
@@ -367,12 +366,11 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
     # ===== バイタルサイン =====
     # 酸素投与
     o2_flow = data.get("o2_flow", "").strip()
-    o2_use  = data.get("o2_use", "").strip()
     if o2_flow and o2_flow != "0":
-        draw_maru(d, (1090, 612), r=16)   # 「有」に◯（青線の左、少し上）
-        d.text((1200, 588), o2_flow, font=f28, fill="black")  # 流量（緑線より右、少し上）
-    elif o2_use == "0" or not o2_flow:
-        draw_maru(d, (1090, 665), r=16)   # 「無」に◯（青線の左）
+        draw_maru(d, (1090, 612), r=16)
+        d.text((1200, 588), o2_flow, font=f28, fill="black")
+    else:
+        draw_maru(d, (1090, 665), r=16)
 
     d.text((1120, 705), data["jcs"], font=f28, fill="black")
     d.text((1060, 775), data["rr"], font=f28, fill="black")
@@ -1035,9 +1033,12 @@ if st.session_state.input_mode == "qr":
                     elif i == 13: label = "← 生年月日"
                     elif i == 14: label = "← 年齢"
                     elif i == 15: label = "← JCS"
-                    elif i == 16: label = "← 酸素投与デバイス"
-                    elif i == 17: label = "← 酸素流量(L/min)"
-                    elif i == 18: label = "← 酸素関連"
+                    elif i == 16: label = "← (酸素関連)"
+                    elif i == 17: label = "← (酸素関連)"
+                    elif i == 18: label = "← (酸素関連)"
+                    elif i == 43: label = "← SpO2(酸素投与後)"
+                    elif i == 44: label = "← 酸素流量(L/min)"
+                    elif i == 45: label = "← 酸素デバイス"
                     elif i == 19: label = "← BP(上)"
                     elif i == 20: label = "← BP(下)"
                     elif i == 21: label = "← HR"
