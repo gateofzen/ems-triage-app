@@ -536,7 +536,10 @@ if records:
     if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
         all_records = st.session_state.triage_records
         if all_records:
-            for idx, (key, rec) in enumerate(all_records.items(), start=1):
+            # case_no順にソート
+            sorted_bulk = sorted(all_records.items(), key=lambda x: int(x[1].get("case_no", 99)))
+            all_images = []  # Gmail添付用
+            for key, rec in sorted_bulk:
                 data = rec["data"]
                 shift = rec.get("shift","夜勤")
                 recorder = rec.get("recorder","前川")
@@ -545,23 +548,62 @@ if records:
                 history_dept = rec.get("history_dept","")
                 decision = rec.get("decision","応需")
                 res = rec.get("res",{})
-                case_no = rec.get("case_no",idx)
+                case_no = rec.get("case_no", 1)
                 free_note = rec.get("free_note","")
                 kana = data.get("kana","").strip()
                 display = kana if kana else key
-                st.write(f"**{idx}. {display}**")
+                st.write(f"**{case_no}. {display}**")
                 result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
                                        decision, res, case_no, free_note)
                 st.image(result, use_container_width=True)
                 buf = io.BytesIO()
                 result.save(buf, format="JPEG", quality=95)
+                img_bytes = buf.getvalue()
+                filename = f"triage_{case_no:02d}_{data.get('kanji', display)}.jpg"
+                all_images.append((filename, img_bytes))
                 st.download_button(
-                    f"📥 {display} の台帳を保存",
-                    buf.getvalue(),
-                    f"triage_{data.get('kanji', display)}.jpg",
-                    "image/jpeg",
-                    key=f"bulk_dl_{idx}"
+                    f"📥 {case_no}.{display} を保存",
+                    img_bytes, filename, "image/jpeg",
+                    key=f"bulk_dl_{case_no}"
                 )
+            # セッションに保存（Gmail送信用）
+            st.session_state.bulk_images = all_images
+            st.success(f"✅ {len(all_images)}件の台帳を生成しました。")
+
+    # Gmail送信ボタン
+    if st.session_state.get("bulk_images"):
+        st.divider()
+        st.markdown("**📧 Gmailで送信**")
+        import base64
+        if st.button("📧 台帳をGmailで送信（宛名未設定）", use_container_width=True):
+            import base64 as b64
+            # メール本文
+            subject = f"トリアージ台帳 {len(st.session_state.bulk_images)}件"
+            body = "トリアージ台帳を添付します。\n\n"
+            for fname, _ in st.session_state.bulk_images:
+                body += f"・{fname}\n"
+
+            # Gmail MCP経由で下書き作成
+            try:
+                import anthropic
+                client = anthropic.Anthropic()
+                # 添付ファイルをbase64エンコード
+                attachments_info = "\n".join([f"ファイル名: {fn}" for fn, _ in st.session_state.bulk_images])
+                prompt = f"""以下の内容でGmailの下書きメールを作成してください。
+件名: {subject}
+本文: {body}
+宛先: 未設定（空欄のまま）
+添付ファイル情報: {attachments_info}
+※添付ファイルは別途手動で追加が必要です。下書きを作成してください。"""
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=1000,
+                    messages=[{"role":"user","content":prompt}],
+                    mcp_servers=[{"type":"url","url":"https://gmail.mcp.claude.com/mcp","name":"gmail"}]
+                )
+                st.success("✅ Gmailの下書きを作成しました。Gmailを開いて宛先を設定し送信してください。")
+            except Exception as e:
+                st.error(f"Gmail送信エラー: {e}")
 
     st.divider()
     # 一括削除ボタン（確認あり）
@@ -646,7 +688,9 @@ if editing_key and editing_key in records:
     e_bt = st.text_input("体温（BT）", value=data.get("bt",""), key="ed_bt")
 
     shift = rec.get("shift","日勤")
-    st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**")
+    birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
+    dob_str = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else "不明"
+    st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**　生年月日: {dob_str}")
     free_note = st.text_area("自由記載", value=rec.get("free_note",""), height=80, key="ed_free")
 
     # 転帰
