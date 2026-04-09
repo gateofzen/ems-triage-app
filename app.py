@@ -373,7 +373,7 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
         d.text((1200, 588), o2_flow, font=f28, fill="black")
         # デバイス名（流量の下に小さく）
         if o2_device:
-            d.text((1130, 630), o2_device, font=f18, fill="black")
+            d.text((1130, 630), o2_device, font=f28, fill="black")
     else:
         draw_maru(d, (1090, 665), r=16)
 
@@ -726,8 +726,15 @@ if editing_key and editing_key in records:
     with ev3: e_bpd  = st.text_input("BP下",  value=data.get("bp_d",""), key="ed_bpd")
     with ev4: e_hr   = st.text_input("HR",   value=data.get("hr",""),   key="ed_hr")
     with ev5: e_rr   = st.text_input("RR",   value=data.get("rr",""),   key="ed_rr")
-    with ev6: e_spo2 = st.text_input("SpO2", value=data.get("spo2",""), key="ed_spo2")
-    e_bt = st.text_input("体温（BT）", value=data.get("bt",""), key="ed_bt")
+    with ev6: e_bt   = st.text_input("BT",   value=data.get("bt",""),   key="ed_bt")
+    # 酸素・SpO2
+    st.markdown("**酸素・SpO2**")
+    eo1,eo2,eo3,eo4,eo5 = st.columns(5)
+    with eo1: e_o2_flow   = st.text_input("酸素流量(L)", value=data.get("o2_flow",""),   key="ed_o2_flow",   placeholder="0=なし")
+    with eo2: e_o2_device = st.text_input("デバイス",    value=data.get("o2_device",""), key="ed_o2_device", placeholder="鼻カニューレ等")
+    with eo3: e_spo2_b    = st.text_input("SpO2(前)",   value=data.get("spo2_before",""),key="ed_spo2_b",    placeholder="投与前")
+    with eo4: e_spo2      = st.text_input("SpO2(後)",   value=data.get("spo2",""),       key="ed_spo2",      placeholder="投与後")
+    with eo5: st.markdown(f"<div style='font-size:13px;padding-top:28px'>{data.get('spo2_before','')}→{data.get('spo2','')}</div>", unsafe_allow_html=True)
 
     shift = rec.get("shift","日勤")
     birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
@@ -771,6 +778,7 @@ if editing_key and editing_key in records:
             data["complaint"] = e_complaint
             data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
             data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
+            data["o2_flow"]=e_o2_flow; data["o2_device"]=e_o2_device; data["spo2_before"]=e_spo2_b
             records[editing_key]["data"] = data
             records[editing_key]["res"] = res
             records[editing_key]["free_note"] = free_note
@@ -791,6 +799,7 @@ if editing_key and editing_key in records:
             data["complaint"] = e_complaint
             data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
             data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
+            data["o2_flow"]=e_o2_flow; data["o2_device"]=e_o2_device; data["spo2_before"]=e_spo2_b
             records[editing_key]["data"] = data
             records[editing_key]["res"] = res
             records[editing_key]["free_note"] = free_note
