@@ -262,6 +262,14 @@ def parse_qr(raw):
     }
 
 # ===== テンプレート描画 =====
+
+def safe_triage_fname(data, case_no):
+    """患者名を含まない安全なファイル名を生成"""
+    dt = data.get("dt_str","").replace("/","").replace("（","_").replace("）","").replace(":","").replace(" ","")[:13]
+    age = data.get("age","")
+    sex = "M" if data.get("gender")=="1" else ("F" if data.get("gender")=="2" else "")
+    return f"triage_{case_no:02d}_{dt}_{age}{sex}.jpg"
+
 def render_triage(data, recorder, origin, shift, history_yn, history_dept, decision, res, case_no, free_note="", hide_name=False):
     base = Image.open("template.png").convert("RGB")
     d = ImageDraw.Draw(base)
@@ -587,7 +595,11 @@ if records:
                 buf = io.BytesIO()
                 result.save(buf, format="JPEG", quality=95)
                 img_bytes = buf.getvalue()
-                filename = f"triage_{case_no:02d}_{data.get('kanji', display)}.jpg"
+                # ファイル名に患者名を含めない（個人情報保護）
+                _age  = data.get("age","")
+                _sex  = "M" if data.get("gender")=="1" else ("F" if data.get("gender")=="2" else "")
+                _dt   = data.get("dt_str","").replace("/","").replace("（","").replace("）","").replace(":","").replace(" ","")[:12]
+                filename = f"triage_{case_no:02d}_{_dt}_{_age}{_sex}.jpg"
                 all_images.append((filename, img_bytes))
                 st.download_button(
                     f"📥 {case_no}.{display} を保存",
@@ -821,7 +833,7 @@ if editing_key and editing_key in records:
             buf = io.BytesIO()
             result.save(buf, format="JPEG", quality=95)
             st.download_button("📥 台帳を保存", buf.getvalue(),
-                               f"triage_{data.get('kanji','patient')}.jpg", "image/jpeg")
+                               safe_triage_fname(data, case_no), "image/jpeg")
     with col_cancel:
         if st.button("キャンセル", use_container_width=True):
             st.session_state.editing_key = None
@@ -1000,7 +1012,7 @@ if st.session_state.manual_mode:
                 buf = io.BytesIO()
                 result.save(buf, format="JPEG", quality=95)
                 st.download_button("📥 台帳を保存", buf.getvalue(),
-                                   f"triage_{data['kanji'] or 'manual'}.jpg", "image/jpeg", key="m_dl")
+                                   safe_triage_fname(data, case_no), "image/jpeg", key="m_dl")
 
 # ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
@@ -1148,4 +1160,4 @@ if st.session_state.input_mode == "qr":
                     buf = io.BytesIO()
                     result.save(buf, format="JPEG", quality=95)
                     st.download_button("📥 台帳を保存", buf.getvalue(),
-                                       f"triage_{data['kanji']}.jpg", "image/jpeg")
+                                       safe_triage_fname(data, case_no), "image/jpeg")
