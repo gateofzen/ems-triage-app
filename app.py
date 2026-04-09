@@ -265,7 +265,20 @@ def parse_qr(raw):
 
 def safe_triage_fname(data, case_no):
     """患者名を含まない安全なファイル名を生成"""
-    dt = data.get("dt_str","").replace("/","").replace("（","_").replace("）","").replace(":","").replace(" ","")[:13]
+    dt_raw = data.get("dt_str","")
+    # "4/8（水）21:25" → "20260408_2125"
+    try:
+        from datetime import datetime as _dt2
+        # dt_rawから月/日と時刻を抽出
+        date_part = dt_raw.split("（")[0].strip()  # "4/8"
+        time_part = dt_raw.split("）")[-1].strip() if "）" in dt_raw else ""  # "21:25"
+        m, d = date_part.split("/")
+        h, mi = time_part.replace(":","")[:2], time_part.replace(":","")[2:4]
+        from datetime import date as _date2
+        year = _date2.today().year
+        dt = f"{year}{int(m):02d}{int(d):02d}_{h}{mi}"
+    except Exception:
+        dt = dt_raw.replace("/","").replace("（","").replace("）","").replace(":","").replace(" ","")[:12]
     age = data.get("age","")
     sex = "M" if data.get("gender")=="1" else ("F" if data.get("gender")=="2" else "")
     return f"triage_{case_no:02d}_{dt}_{age}{sex}.jpg"
@@ -598,7 +611,13 @@ if records:
                 # ファイル名に患者名を含めない（個人情報保護）
                 _age  = data.get("age","")
                 _sex  = "M" if data.get("gender")=="1" else ("F" if data.get("gender")=="2" else "")
-                _dt   = data.get("dt_str","").replace("/","").replace("（","").replace("）","").replace(":","").replace(" ","")[:12]
+                try:
+                    _dt_raw = data.get("dt_str","")
+                    _dp = _dt_raw.split("（")[0].strip(); _tp = _dt_raw.split("）")[-1].strip() if "）" in _dt_raw else ""
+                    _m,_d = _dp.split("/"); _hm = _tp.replace(":","")
+                    from datetime import date as _d2; _y = _d2.today().year
+                    _dt = f"{_y}{int(_m):02d}{int(_d):02d}_{_hm[:4]}"
+                except: _dt = ""
                 filename = f"triage_{case_no:02d}_{_dt}_{_age}{_sex}.jpg"
                 all_images.append((filename, img_bytes))
                 st.download_button(
