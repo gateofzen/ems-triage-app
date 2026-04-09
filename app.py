@@ -255,7 +255,8 @@ def parse_qr(raw):
         "hr": safe(21),
         "rr": safe(22),
         "bt": safe(23),
-        "spo2": safe(24),
+        "spo2": safe(43) if safe(43) else safe(24),  # 酸素投与後SpO2[43]優先、なければ投与前[24]
+        "spo2_before": safe(24),  # 投与前SpO2
         "team_name": team_name,
         "items": items,
     }
@@ -365,10 +366,14 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
 
     # ===== バイタルサイン =====
     # 酸素投与
-    o2_flow = data.get("o2_flow", "").strip()
+    o2_flow   = data.get("o2_flow", "").strip()
+    o2_device = data.get("o2_device", "").strip()
     if o2_flow and o2_flow != "0":
         draw_maru(d, (1090, 612), r=16)
         d.text((1200, 588), o2_flow, font=f28, fill="black")
+        # デバイス名（流量の下に小さく）
+        if o2_device:
+            d.text((1130, 630), o2_device, font=f22, fill="black")
     else:
         draw_maru(d, (1090, 665), r=16)
 
@@ -376,7 +381,14 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
     d.text((1060, 775), data["rr"], font=f28, fill="black")
     d.text((1060, 845), data["hr"], font=f28, fill="black")
     d.text((1060, 915), f"{data['bp_s']}/{data['bp_d']}", font=f28, fill="black")
-    d.text((1060, 978), data["spo2"], font=f28, fill="black")
+    # SpO2: 投与前→投与後の両方を表示
+    spo2_before = data.get("spo2_before", "").strip()
+    spo2_after  = data.get("spo2", "").strip()
+    if spo2_before and spo2_after and spo2_before != spo2_after:
+        spo2_str = f"{spo2_before}→{spo2_after}"
+    else:
+        spo2_str = spo2_after or spo2_before
+    d.text((1060, 978), spo2_str, font=f28, fill="black")
     d.text((1060, 1048), data["bt"], font=f28, fill="black")
 
     # ===== 判定 =====
