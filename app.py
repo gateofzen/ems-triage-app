@@ -1035,6 +1035,59 @@ if st.session_state.manual_mode:
 
 # ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
+    st.caption("📋 **PC利用時**: スクリーンショット後にCtrl+Vでペースト可 / 📱 **スマホ**: 下のボタンからカメラ撮影")
+
+    # クリップボードペーストゾーン（PC向け）
+    paste_result = components.html("""
+<div id="paste-zone" style="
+    border: 2px dashed #888; border-radius:8px; padding:18px;
+    text-align:center; color:#888; font-size:14px; cursor:pointer;
+    background:#f8f8f8; margin-bottom:8px; user-select:none;">
+    🖼️ ここをクリックしてCtrl+V（ペースト）
+</div>
+<div id="paste-msg" style="font-size:12px;color:#888;text-align:center"></div>
+<script>
+const zone = document.getElementById('paste-zone');
+const msg  = document.getElementById('paste-msg');
+
+// ゾーンクリックでフォーカス
+zone.addEventListener('click', () => { zone.focus(); zone.style.borderColor='#1a73e8'; });
+
+// ペーストイベント（ゾーン外でも拾う）
+document.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (let i=0; i<items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+            const file = items[i].getAsFile();
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                const b64 = ev.target.result; // data:image/png;base64,...
+                zone.style.background = '#e8f4e8';
+                zone.style.borderColor = '#1a7340';
+                zone.innerHTML = '✅ 画像をペーストしました。処理中...';
+                msg.textContent = file.name || 'clipboard_image.png';
+                // Streamlitに送信
+                window.parent.postMessage({type:'streamlit:setComponentValue', value: b64}, '*');
+            };
+            reader.readAsDataURL(file);
+            break;
+        }
+    }
+});
+</script>
+""", height=90)
+
+    # ペーストされた画像をセッションに保存
+    if paste_result and isinstance(paste_result, str) and paste_result.startswith("data:image"):
+        import base64 as _b64
+        _header, _data = paste_result.split(",", 1)
+        _img_bytes = _b64.b64decode(_data)
+        if _img_bytes != st.session_state.get("uploaded_bytes"):
+            st.session_state.uploaded_bytes = _img_bytes
+            st.session_state.triage_raw = None
+            st.rerun()
+
     uploaded = st.file_uploader(
         "📷 画像を選択（スクリーンショットまたはカメラ撮影）",
         type=["png", "jpg", "jpeg"],
