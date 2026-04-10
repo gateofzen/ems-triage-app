@@ -43,7 +43,6 @@ st.markdown("""
 def detect_shift(dt_str):
     """8:30-16:30 = 日勤、それ以外 = 夜勤"""
     try:
-        # dt_strは "4/8（水）17:40" 形式
         time_part = dt_str.split("）")[-1].strip()
         h, m = map(int, time_part.split(":"))
         minutes = h * 60 + m
@@ -52,6 +51,46 @@ def detect_shift(dt_str):
         return "夜勤"
     except Exception:
         return "夜勤"
+
+def get_shift_identity(dt_str):
+    """(shift_date_str, shift_type) を返す
+    夜勤で00:00-08:30の場合はshift_dateを前日にする"""
+    try:
+        date_part = dt_str.split("（")[0].strip()   # "4/10"
+        time_part = dt_str.split("）")[-1].strip()  # "02:00"
+        h, m = map(int, time_part.split(":"))
+        minutes = h * 60 + m
+        mo, d = map(int, date_part.split("/"))
+        if 8 * 60 + 30 <= minutes < 16 * 60 + 30:
+            shift_type = "日勤"
+            shift_date = f"{mo}/{d}"
+        else:
+            shift_type = "夜勤"
+            # 00:00-08:30 は前日の夜勤
+            if minutes < 8 * 60 + 30:
+                from datetime import date as _d, timedelta
+                year = _d.today().year
+                try:
+                    prev = _d(year, mo, d) - timedelta(days=1)
+                except ValueError:
+                    prev = _d(year - 1, 12, 31)
+                shift_date = f"{prev.month}/{prev.day}"
+            else:
+                shift_date = f"{mo}/{d}"
+        return shift_date, shift_type
+    except Exception:
+        return "?", "夜勤"
+
+def auto_case_no(records, dt_str):
+    """同一勤務帯（shift_date + shift_type）内の次のNo.を返す"""
+    target_date, target_shift = get_shift_identity(dt_str)
+    count = 0
+    for rec in records.values():
+        rec_dt = rec.get("data", {}).get("dt_str", "")
+        rd, rs = get_shift_identity(rec_dt)
+        if rd == target_date and rs == target_shift:
+            count += 1
+    return min(count + 1, 15)
 
 # ===== ファイル永続化 =====
 RECORDS_FILE = "triage_records.json"
@@ -595,315 +634,6 @@ if "uploaded_bytes" not in st.session_state:
 if "editing_key" not in st.session_state:
     st.session_state.editing_key = None
 
-# ===== 保存済み患者一覧 =====
-records = st.session_state.triage_records
-
-# クエリパラメータでボタンアクション処理
-params = st.query_params
-if "action" in params and "key" in params:
-    action = params["action"]
-    target = params["key"]
-    if action == "edit" and target in records:
-        st.session_state.editing_key = target
-    elif action == "del" and target in records:
-        del st.session_state.triage_records[target]
-        save_records(st.session_state.triage_records)
-        if st.session_state.editing_key == target:
-            st.session_state.editing_key = None
-    st.query_params.clear()
-    st.rerun()
-
-if records:
-    st.subheader("📋 保存済み患者")
-    st.markdown("""<style>
-    [data-testid="stHorizontalBlock"]>div{min-width:0!important}
-    [data-testid="stHorizontalBlock"] button{padding:2px 8px!important;font-size:12px!important;min-height:28px!important;height:28px!important;line-height:1!important}
-    </style>""", unsafe_allow_html=True)
-    # case_noでソート
-    sorted_records = sorted(records.items(), key=lambda x: int(x[1].get("case_no", 99)))
-    for key, rec in sorted_records:
-        outcome_str = rec.get("res", {}).get("out", "未記入")
-        dt_str = rec.get("data", {}).get("dt_str", "")
-        case_no_disp = rec.get("case_no", "?")
-        kana = rec.get("data", {}).get("kana", "").replace("　","").replace(" ","")
-        display_name = kana if kana else key.replace("　","").replace(" ","")
-        ci, ce, cd = st.columns([6, 1, 1])
-        with ci:
-            st.markdown(
-                f"<div style='font-size:14px;padding:3px 0'>"
-                f"<b>{case_no_disp}.{display_name}</b> {dt_str} 転帰:{outcome_str}</div>",
-                unsafe_allow_html=True)
-        with ce:
-            if st.button("編集", key=f"edit_{key}"):
-                st.session_state.editing_key = key
-                st.rerun()
-        with cd:
-            if st.button("削除", key=f"del_{key}"):
-                del st.session_state.triage_records[key]
-                save_records(st.session_state.triage_records)
-                if st.session_state.editing_key == key:
-                    st.session_state.editing_key = None
-                st.rerun()
-
-    # 台帳一括生成ボタン
-    if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
-        all_records = st.session_state.triage_records
-        if all_records:
-            # case_no順にソート
-            sorted_bulk = sorted(all_records.items(), key=lambda x: int(x[1].get("case_no", 99)))
-            all_images = []  # Gmail添付用
-            for key, rec in sorted_bulk:
-                data = rec["data"]
-                shift = rec.get("shift","夜勤")
-                recorder = rec.get("recorder","前川")
-                origin = rec.get("origin","中央")
-                history_yn = rec.get("history_yn","無")
-                history_dept = rec.get("history_dept","")
-                decision = rec.get("decision","応需")
-                res = rec.get("res",{})
-                case_no = rec.get("case_no", 1)
-                free_note = rec.get("free_note","")
-                kana = data.get("kana","").strip()
-                display = kana if kana else key
-                st.write(f"**{case_no}. {display}**")
-                result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
-                                       decision, res, case_no, free_note)
-                st.image(result, use_container_width=True)
-                buf = io.BytesIO()
-                result.save(buf, format="JPEG", quality=95)
-                img_bytes = buf.getvalue()
-                # ファイル名に患者名を含めない（個人情報保護）
-                _age  = data.get("age","")
-                _sex  = "M" if data.get("gender")=="1" else ("F" if data.get("gender")=="2" else "")
-                try:
-                    _dt_raw = data.get("dt_str","")
-                    _dp = _dt_raw.split("（")[0].strip(); _tp = _dt_raw.split("）")[-1].strip() if "）" in _dt_raw else ""
-                    _m,_d = _dp.split("/"); _hm = _tp.replace(":","")
-                    from datetime import date as _d2; _y = _d2.today().year
-                    _dt = f"{_y}{int(_m):02d}{int(_d):02d}_{_hm[:4]}"
-                except: _dt = ""
-                filename = f"triage_{case_no:02d}_{_dt}_{_age}{_sex}.jpg"
-                all_images.append((filename, img_bytes))
-            # セッションに保存（Gmail送信用）
-            st.session_state.bulk_images = all_images
-            st.success(f"✅ {len(all_images)}件の台帳を生成しました。")
-
-    # 一括PDFダウンロード（A4・余白付き）
-    if st.session_state.get("bulk_images"):
-        try:
-            from reportlab.pdfgen import canvas as rl_canvas
-            from reportlab.lib.pagesizes import A4
-            from reportlab.lib.utils import ImageReader
-            from PIL import Image as PILImage
-
-            A4_W, A4_H = A4
-            MARGIN = 28  # 10mm余白
-            avail_w = A4_W - 2*MARGIN
-            avail_h = A4_H - 2*MARGIN
-
-            pdf_buf = io.BytesIO()
-            c = rl_canvas.Canvas(pdf_buf, pagesize=A4)
-            for _, img_bytes in st.session_state.bulk_images:
-                img = PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
-                iw, ih = img.size
-                scale = min(avail_w/iw, avail_h/ih)
-                pw, ph = iw*scale, ih*scale
-                x = MARGIN + (avail_w - pw) / 2
-                y = MARGIN + (avail_h - ph) / 2
-                img_buf = io.BytesIO()
-                img.save(img_buf, format="JPEG", quality=95)
-                img_buf.seek(0)
-                c.drawImage(ImageReader(img_buf), x, y, width=pw, height=ph)
-                c.showPage()
-            c.save()
-            pdf_buf.seek(0)
-            from datetime import date
-            pdf_name = f"triage_{date.today().strftime('%Y%m%d')}.pdf"
-            st.download_button(
-                "📄 全台帳を1つのPDFで保存（A4印刷用）",
-                pdf_buf.getvalue(), pdf_name, "application/pdf",
-                use_container_width=True, type="primary"
-            )
-        except Exception as e:
-            st.error(f"PDF生成エラー: {e}")
-
-    st.divider()
-    # 一括削除ボタン（確認あり）
-    if "confirm_clear" not in st.session_state:
-        st.session_state.confirm_clear = False
-
-    if not st.session_state.confirm_clear:
-        if st.button("🗑️ 保存済み患者を一括削除", use_container_width=True):
-            st.session_state.confirm_clear = True
-            st.rerun()
-    else:
-        st.warning("⚠️ 保存済み患者を全員削除します。この操作は取り消せません。")
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("✅ はい、全削除する", type="primary", use_container_width=True):
-                st.session_state.triage_records = {}
-                save_records({})
-                st.session_state.confirm_clear = False
-                st.rerun()
-        with c2:
-            if st.button("❌ キャンセル", use_container_width=True):
-                st.session_state.confirm_clear = False
-                st.rerun()
-
-    st.divider()
-
-# ===== 編集モード =====
-editing_key = st.session_state.editing_key
-if editing_key and editing_key in records:
-    rec = records[editing_key]
-    data = rec["data"]
-    kana = data.get("kana","").strip()
-    display = kana if kana else editing_key
-    st.subheader(f"✏️ 編集：{display}")
-    res = dict(rec.get("res", {}))
-
-    # 基本情報
-    st.markdown("**基本情報**")
-    ec1, ec2 = st.columns(2)
-    with ec1:
-        case_no = st.selectbox("No.", list(range(1,16)),
-                               index=int(rec.get("case_no",1))-1, key="ed_case_no")
-        e_kanji = st.text_input("患者氏名（漢字）", value=data.get("kanji",""), key="ed_kanji")
-        e_kana  = st.text_input("患者氏名（カナ）",  value=data.get("kana",""),  key="ed_kana")
-        e_age   = st.text_input("年齢",  value=data.get("age",""),  key="ed_age")
-        # 生年月日を年齢の近くに表示
-        birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
-        dob_str = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else ""
-        if dob_str:
-            st.caption(f"生年月日: {dob_str}")
-        gender_opts = ["1（男）","2（女）","未記載"]
-        g_cur = "1（男）" if data.get("gender")=="1" else ("2（女）" if data.get("gender")=="2" else "未記載")
-        e_gender_sel = st.radio("性別", gender_opts, index=gender_opts.index(g_cur), horizontal=True, key="ed_gender")
-    with ec2:
-        recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
-        rec_idx = recorders.index(rec.get("recorder","前川")) if rec.get("recorder") in recorders else 0
-        e_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="ed_recorder")
-        RESCUE_TEAMS_E = ["","中央","大通","桑園","山鼻","北","篠路","新光","東","栄","東苗穂",
-            "白石","菊水","厚別","厚別西","豊平","西岡","平岸","清田","南","定山渓",
-            "西","前田","西野","手稲","石山","あいの里","北野","警防","豊水","幌西",
-            "藤野","八軒","北郷","札苗","苗穂","北エルム","東モエレ","その他（直接入力）"]
-        _orig = rec.get("origin","")
-        _eidx = RESCUE_TEAMS_E.index(_orig) if _orig in RESCUE_TEAMS_E else len(RESCUE_TEAMS_E)-1
-        e_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_E, index=_eidx, key="ed_team")
-        if e_team_sel == "その他（直接入力）":
-            e_origin = st.text_input("救急隊名", value=_orig if _orig not in RESCUE_TEAMS_E else "", key="ed_team_other")
-        else:
-            e_origin = e_team_sel
-        e_history_yn = st.radio("受診歴", ["無","有"],
-                                index=0 if rec.get("history_yn","無")=="無" else 1,
-                                horizontal=True, key="ed_hist_yn")
-        e_history_dept = ""
-        if e_history_yn == "有":
-            e_history_dept = st.text_input("受診科名", value=rec.get("history_dept",""), key="ed_hist_dept")
-
-    e_complaint = st.text_input("主訴", value=data.get("complaint",""), key="ed_complaint")
-
-    # バイタル
-    st.markdown("**バイタルサイン**")
-    ev1,ev2,ev3,ev4,ev5,ev6 = st.columns(6)
-    with ev1: e_jcs  = st.text_input("JCS",  value=data.get("jcs",""),  key="ed_jcs")
-    with ev2: e_bps  = st.text_input("BP上",  value=data.get("bp_s",""), key="ed_bps")
-    with ev3: e_bpd  = st.text_input("BP下",  value=data.get("bp_d",""), key="ed_bpd")
-    with ev4: e_hr   = st.text_input("HR",   value=data.get("hr",""),   key="ed_hr")
-    with ev5: e_rr   = st.text_input("RR",   value=data.get("rr",""),   key="ed_rr")
-    with ev6: e_bt   = st.text_input("BT",   value=data.get("bt",""),   key="ed_bt")
-    # 酸素・SpO2
-    st.markdown("**酸素・SpO2**")
-    eo1,eo2,eo3,eo4,eo5 = st.columns(5)
-    with eo1: e_o2_flow   = st.text_input("酸素流量(L)", value=data.get("o2_flow",""),   key="ed_o2_flow",   placeholder="0=なし")
-    with eo2: e_o2_device = st.text_input("デバイス",    value=data.get("o2_device",""), key="ed_o2_device", placeholder="鼻カニューレ等")
-    with eo3: e_spo2_b    = st.text_input("SpO2(前)",   value=data.get("spo2_before",""),key="ed_spo2_b",    placeholder="投与前")
-    with eo4: e_spo2      = st.text_input("SpO2(後)",   value=data.get("spo2",""),       key="ed_spo2",      placeholder="投与後")
-    with eo5: st.markdown(f"<div style='font-size:13px;padding-top:28px'>{data.get('spo2_before','')}→{data.get('spo2','')}</div>", unsafe_allow_html=True)
-
-    shift = rec.get("shift","日勤")
-    st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**")
-    free_note = st.text_area("自由記載", value=rec.get("free_note",""), height=80, key="ed_free")
-
-    # 転帰
-    st.markdown("**転帰**")
-    decision = st.radio("判定", ["応需","不応需"], horizontal=True,
-                        index=0 if res.get("decision","応需")=="応需" else 1, key="ed_decision")
-    if decision == "応需":
-        init_opts = ["当直医","救急科","その他"]
-        res["init"] = st.selectbox("初期対応した科", init_opts,
-                                   index=init_opts.index(res["init"]) if res.get("init") in init_opts else 0, key="ed_init")
-        if res["init"] == "その他":
-            res["init_other"] = st.text_input("初期対応科名", value=res.get("init_other",""), key="ed_init_other")
-        out_opts = ["入院","帰宅","その他"]
-        cur_out = res.get("out","") if res.get("out") in out_opts else "入院"
-        res["out"] = st.selectbox("最終転帰", out_opts, index=out_opts.index(cur_out), key="ed_out")
-        if res["out"] == "入院":
-            ward_opts = ["4東","6東","HCU","ICU","その他"]
-            cur_ward = res.get("ward","") if res.get("ward") in ward_opts else "4東"
-            res["ward"] = st.selectbox("病棟", ward_opts, index=ward_opts.index(cur_ward), key="ed_ward")
-            if res["ward"] == "その他":
-                res["ward_other"] = st.text_input("病棟名", value=res.get("ward_other",""), key="ed_ward_other")
-            main_opts = ["臨研","救急科","その他"]
-            cur_main = res.get("main","") if res.get("main") in main_opts else "臨研"
-            res["main"] = st.selectbox("主科", main_opts, index=main_opts.index(cur_main), key="ed_main")
-            if res["main"] == "その他":
-                res["main_other"] = st.text_input("主科名", value=res.get("main_other",""), key="ed_main_other")
-
-    # ボタン
-    col_save, col_gen, col_cancel = st.columns(3)
-    with col_save:
-        if st.button("💾 保存", use_container_width=True):
-            res["decision"] = decision
-            # dataを更新
-            data["kanji"] = e_kanji; data["kana"] = e_kana; data["age"] = e_age
-            data["gender"] = "1" if "男" in e_gender_sel else ("2" if "女" in e_gender_sel else "")
-            data["complaint"] = e_complaint
-            data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
-            data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
-            data["o2_flow"]=e_o2_flow; data["o2_device"]=e_o2_device; data["spo2_before"]=e_spo2_b
-            records[editing_key]["data"] = data
-            records[editing_key]["res"] = res
-            records[editing_key]["free_note"] = free_note
-            records[editing_key]["case_no"] = case_no
-            records[editing_key]["recorder"] = e_recorder
-            records[editing_key]["origin"] = e_origin
-            records[editing_key]["history_yn"] = e_history_yn
-            records[editing_key]["history_dept"] = e_history_dept
-            save_records(st.session_state.triage_records)
-            st.session_state.editing_key = None
-            st.success("保存しました")
-            st.rerun()
-    with col_gen:
-        if st.button("🖨️ 台帳を生成", type="primary", use_container_width=True):
-            res["decision"] = decision
-            data["kanji"] = e_kanji; data["kana"] = e_kana; data["age"] = e_age
-            data["gender"] = "1" if "男" in e_gender_sel else ("2" if "女" in e_gender_sel else "")
-            data["complaint"] = e_complaint
-            data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
-            data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
-            data["o2_flow"]=e_o2_flow; data["o2_device"]=e_o2_device; data["spo2_before"]=e_spo2_b
-            records[editing_key]["data"] = data
-            records[editing_key]["res"] = res
-            records[editing_key]["free_note"] = free_note
-            records[editing_key]["case_no"] = case_no
-            records[editing_key]["recorder"] = e_recorder
-            records[editing_key]["origin"] = e_origin
-            records[editing_key]["history_yn"] = e_history_yn
-            records[editing_key]["history_dept"] = e_history_dept
-            save_records(st.session_state.triage_records)
-            result = render_triage(data, e_recorder, e_origin, shift, e_history_yn, e_history_dept,
-                                   decision, res, case_no, free_note)
-            st.image(result, use_container_width=True)
-            buf = io.BytesIO()
-            result.save(buf, format="JPEG", quality=95)
-            components.html(make_print_widget(result, "ed_print"), height=38)
-    with col_cancel:
-        if st.button("キャンセル", use_container_width=True):
-            st.session_state.editing_key = None
-            st.rerun()
-    st.stop()
-
 # ===== 新規患者入力 =====
 st.subheader("🆕 新規患者")
 
@@ -937,8 +667,11 @@ if st.session_state.manual_mode:
     mc1, mc2 = st.columns(2)
     with mc1:
         # 患者番号（保存済みの次の番号を自動設定）
-        _used = [r.get("case_no",0) for r in st.session_state.triage_records.values()]
-        _next = min((max(_used)+1) if _used else 1, 15)
+        # dt_strはまだ未入力なので、現在時刻から仮のshift identityで計算
+        from datetime import timezone as _tz, timedelta as _td
+        _jst_now = datetime.now(_tz(_td(hours=9)))
+        _tmp_dt = f"{_jst_now.month}/{_jst_now.day}（）{_jst_now.hour:02d}:{_jst_now.minute:02d}"
+        _next = auto_case_no(st.session_state.triage_records, _tmp_dt)
         m_case_no = st.selectbox("No.", list(range(1,16)), index=_next-1, key="m_case_no_inp")
         m_kanji = st.text_input("患者氏名（漢字）", placeholder="山田 太郎")
         m_kana  = st.text_input("患者氏名（カナ）", placeholder="ヤマダ タロウ")
@@ -1009,9 +742,7 @@ if st.session_state.manual_mode:
         st.subheader("台帳情報の入力")
         col1, col2 = st.columns(2)
         with col1:
-            used_nos = [r.get("case_no", 0) for r in st.session_state.triage_records.values()]
-            next_no = (max(used_nos) + 1) if used_nos else 1
-            _def_no = int(data.get("_case_no", min(next_no,15)))
+            _def_no = auto_case_no(st.session_state.triage_records, data.get("dt_str",""))
             case_no = st.selectbox("No.", list(range(1, 16)), index=_def_no-1, key="m_case_no")
             recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
             rec_idx = recorders.index(st.session_state.get("last_recorder","前川")) if st.session_state.get("last_recorder") in recorders else 0
@@ -1185,8 +916,7 @@ if st.session_state.input_mode == "qr":
             st.subheader("台帳情報の入力")
             col1, col2 = st.columns(2)
             with col1:
-                used_nos = [r.get("case_no", 0) for r in st.session_state.triage_records.values()]
-                next_no = min((max(used_nos) + 1) if used_nos else 1, 15)
+                next_no = auto_case_no(st.session_state.triage_records, data["dt_str"])
                 case_no = st.selectbox("No.", list(range(1, 16)), index=next_no-1)
                 if "last_recorder" not in st.session_state:
                     st.session_state.last_recorder = "前川"
@@ -1256,3 +986,313 @@ if st.session_state.input_mode == "qr":
                     buf = io.BytesIO()
                     result.save(buf, format="JPEG", quality=95)
                     components.html(make_print_widget(result, "qr_print"), height=38)
+
+# ===== 編集モード =====
+editing_key = st.session_state.editing_key
+if editing_key and editing_key in records:
+    rec = records[editing_key]
+    data = rec["data"]
+    kana = data.get("kana","").strip()
+    display = kana if kana else editing_key
+    st.subheader(f"✏️ 編集：{display}")
+    res = dict(rec.get("res", {}))
+
+    # 基本情報
+    st.markdown("**基本情報**")
+    ec1, ec2 = st.columns(2)
+    with ec1:
+        case_no = st.selectbox("No.", list(range(1,16)),
+                               index=int(rec.get("case_no",1))-1, key="ed_case_no")
+        e_kanji = st.text_input("患者氏名（漢字）", value=data.get("kanji",""), key="ed_kanji")
+        e_kana  = st.text_input("患者氏名（カナ）",  value=data.get("kana",""),  key="ed_kana")
+        e_age   = st.text_input("年齢",  value=data.get("age",""),  key="ed_age")
+        # 生年月日を年齢の近くに表示
+        birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
+        dob_str = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else ""
+        if dob_str:
+            st.caption(f"生年月日: {dob_str}")
+        gender_opts = ["1（男）","2（女）","未記載"]
+        g_cur = "1（男）" if data.get("gender")=="1" else ("2（女）" if data.get("gender")=="2" else "未記載")
+        e_gender_sel = st.radio("性別", gender_opts, index=gender_opts.index(g_cur), horizontal=True, key="ed_gender")
+    with ec2:
+        recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
+        rec_idx = recorders.index(rec.get("recorder","前川")) if rec.get("recorder") in recorders else 0
+        e_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="ed_recorder")
+        RESCUE_TEAMS_E = ["","中央","大通","桑園","山鼻","北","篠路","新光","東","栄","東苗穂",
+            "白石","菊水","厚別","厚別西","豊平","西岡","平岸","清田","南","定山渓",
+            "西","前田","西野","手稲","石山","あいの里","北野","警防","豊水","幌西",
+            "藤野","八軒","北郷","札苗","苗穂","北エルム","東モエレ","その他（直接入力）"]
+        _orig = rec.get("origin","")
+        _eidx = RESCUE_TEAMS_E.index(_orig) if _orig in RESCUE_TEAMS_E else len(RESCUE_TEAMS_E)-1
+        e_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_E, index=_eidx, key="ed_team")
+        if e_team_sel == "その他（直接入力）":
+            e_origin = st.text_input("救急隊名", value=_orig if _orig not in RESCUE_TEAMS_E else "", key="ed_team_other")
+        else:
+            e_origin = e_team_sel
+        e_history_yn = st.radio("受診歴", ["無","有"],
+                                index=0 if rec.get("history_yn","無")=="無" else 1,
+                                horizontal=True, key="ed_hist_yn")
+        e_history_dept = ""
+        if e_history_yn == "有":
+            e_history_dept = st.text_input("受診科名", value=rec.get("history_dept",""), key="ed_hist_dept")
+
+    e_complaint = st.text_input("主訴", value=data.get("complaint",""), key="ed_complaint")
+
+    # バイタル
+    st.markdown("**バイタルサイン**")
+    ev1,ev2,ev3,ev4,ev5,ev6 = st.columns(6)
+    with ev1: e_jcs  = st.text_input("JCS",  value=data.get("jcs",""),  key="ed_jcs")
+    with ev2: e_bps  = st.text_input("BP上",  value=data.get("bp_s",""), key="ed_bps")
+    with ev3: e_bpd  = st.text_input("BP下",  value=data.get("bp_d",""), key="ed_bpd")
+    with ev4: e_hr   = st.text_input("HR",   value=data.get("hr",""),   key="ed_hr")
+    with ev5: e_rr   = st.text_input("RR",   value=data.get("rr",""),   key="ed_rr")
+    with ev6: e_bt   = st.text_input("BT",   value=data.get("bt",""),   key="ed_bt")
+    # 酸素・SpO2
+    st.markdown("**酸素・SpO2**")
+    eo1,eo2,eo3,eo4,eo5 = st.columns(5)
+    with eo1: e_o2_flow   = st.text_input("酸素流量(L)", value=data.get("o2_flow",""),   key="ed_o2_flow",   placeholder="0=なし")
+    with eo2: e_o2_device = st.text_input("デバイス",    value=data.get("o2_device",""), key="ed_o2_device", placeholder="鼻カニューレ等")
+    with eo3: e_spo2_b    = st.text_input("SpO2(前)",   value=data.get("spo2_before",""),key="ed_spo2_b",    placeholder="投与前")
+    with eo4: e_spo2      = st.text_input("SpO2(後)",   value=data.get("spo2",""),       key="ed_spo2",      placeholder="投与後")
+    with eo5: st.markdown(f"<div style='font-size:13px;padding-top:28px'>{data.get('spo2_before','')}→{data.get('spo2','')}</div>", unsafe_allow_html=True)
+
+    shift = rec.get("shift","日勤")
+    st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**")
+    free_note = st.text_area("自由記載", value=rec.get("free_note",""), height=80, key="ed_free")
+
+    # 転帰
+    st.markdown("**転帰**")
+    decision = st.radio("判定", ["応需","不応需"], horizontal=True,
+                        index=0 if res.get("decision","応需")=="応需" else 1, key="ed_decision")
+    if decision == "応需":
+        init_opts = ["当直医","救急科","その他"]
+        res["init"] = st.selectbox("初期対応した科", init_opts,
+                                   index=init_opts.index(res["init"]) if res.get("init") in init_opts else 0, key="ed_init")
+        if res["init"] == "その他":
+            res["init_other"] = st.text_input("初期対応科名", value=res.get("init_other",""), key="ed_init_other")
+        out_opts = ["入院","帰宅","その他"]
+        cur_out = res.get("out","") if res.get("out") in out_opts else "入院"
+        res["out"] = st.selectbox("最終転帰", out_opts, index=out_opts.index(cur_out), key="ed_out")
+        if res["out"] == "入院":
+            ward_opts = ["4東","6東","HCU","ICU","その他"]
+            cur_ward = res.get("ward","") if res.get("ward") in ward_opts else "4東"
+            res["ward"] = st.selectbox("病棟", ward_opts, index=ward_opts.index(cur_ward), key="ed_ward")
+            if res["ward"] == "その他":
+                res["ward_other"] = st.text_input("病棟名", value=res.get("ward_other",""), key="ed_ward_other")
+            main_opts = ["臨研","救急科","その他"]
+            cur_main = res.get("main","") if res.get("main") in main_opts else "臨研"
+            res["main"] = st.selectbox("主科", main_opts, index=main_opts.index(cur_main), key="ed_main")
+            if res["main"] == "その他":
+                res["main_other"] = st.text_input("主科名", value=res.get("main_other",""), key="ed_main_other")
+
+    # ボタン
+    col_save, col_gen, col_cancel = st.columns(3)
+    with col_save:
+        if st.button("💾 保存", use_container_width=True):
+            res["decision"] = decision
+            # dataを更新
+            data["kanji"] = e_kanji; data["kana"] = e_kana; data["age"] = e_age
+            data["gender"] = "1" if "男" in e_gender_sel else ("2" if "女" in e_gender_sel else "")
+            data["complaint"] = e_complaint
+            data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
+            data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
+            data["o2_flow"]=e_o2_flow; data["o2_device"]=e_o2_device; data["spo2_before"]=e_spo2_b
+            records[editing_key]["data"] = data
+            records[editing_key]["res"] = res
+            records[editing_key]["free_note"] = free_note
+            records[editing_key]["case_no"] = case_no
+            records[editing_key]["recorder"] = e_recorder
+            records[editing_key]["origin"] = e_origin
+            records[editing_key]["history_yn"] = e_history_yn
+            records[editing_key]["history_dept"] = e_history_dept
+            save_records(st.session_state.triage_records)
+            st.session_state.editing_key = None
+            st.success("保存しました")
+            st.rerun()
+    with col_gen:
+        if st.button("🖨️ 台帳を生成", type="primary", use_container_width=True):
+            res["decision"] = decision
+            data["kanji"] = e_kanji; data["kana"] = e_kana; data["age"] = e_age
+            data["gender"] = "1" if "男" in e_gender_sel else ("2" if "女" in e_gender_sel else "")
+            data["complaint"] = e_complaint
+            data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
+            data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
+            data["o2_flow"]=e_o2_flow; data["o2_device"]=e_o2_device; data["spo2_before"]=e_spo2_b
+            records[editing_key]["data"] = data
+            records[editing_key]["res"] = res
+            records[editing_key]["free_note"] = free_note
+            records[editing_key]["case_no"] = case_no
+            records[editing_key]["recorder"] = e_recorder
+            records[editing_key]["origin"] = e_origin
+            records[editing_key]["history_yn"] = e_history_yn
+            records[editing_key]["history_dept"] = e_history_dept
+            save_records(st.session_state.triage_records)
+            result = render_triage(data, e_recorder, e_origin, shift, e_history_yn, e_history_dept,
+                                   decision, res, case_no, free_note)
+            st.image(result, use_container_width=True)
+            buf = io.BytesIO()
+            result.save(buf, format="JPEG", quality=95)
+            components.html(make_print_widget(result, "ed_print"), height=38)
+    with col_cancel:
+        if st.button("キャンセル", use_container_width=True):
+            st.session_state.editing_key = None
+            st.rerun()
+    st.stop()
+
+
+# ===== 保存済み患者一覧 =====
+records = st.session_state.triage_records
+
+# クエリパラメータでボタンアクション処理
+params = st.query_params
+if "action" in params and "key" in params:
+    action = params["action"]
+    target = params["key"]
+    if action == "edit" and target in records:
+        st.session_state.editing_key = target
+    elif action == "del" and target in records:
+        del st.session_state.triage_records[target]
+        save_records(st.session_state.triage_records)
+        if st.session_state.editing_key == target:
+            st.session_state.editing_key = None
+    st.query_params.clear()
+    st.rerun()
+
+if records:
+    st.subheader("📋 保存済み患者")
+    st.markdown("""<style>
+    [data-testid="stHorizontalBlock"]>div{min-width:0!important}
+    [data-testid="stHorizontalBlock"] button{padding:2px 8px!important;font-size:12px!important;min-height:28px!important;height:28px!important;line-height:1!important}
+    </style>""", unsafe_allow_html=True)
+    # case_noでソート
+    sorted_records = sorted(records.items(), key=lambda x: int(x[1].get("case_no", 99)))
+    for key, rec in sorted_records:
+        outcome_str = rec.get("res", {}).get("out", "未記入")
+        dt_str = rec.get("data", {}).get("dt_str", "")
+        case_no_disp = rec.get("case_no", "?")
+        kana = rec.get("data", {}).get("kana", "").replace("　","").replace(" ","")
+        display_name = kana if kana else key.replace("　","").replace(" ","")
+        ci, ce, cd = st.columns([6, 1, 1])
+        with ci:
+            st.markdown(
+                f"<div style='font-size:14px;padding:3px 0'>"
+                f"<b>{case_no_disp}.{display_name}</b> {dt_str} 転帰:{outcome_str}</div>",
+                unsafe_allow_html=True)
+        with ce:
+            if st.button("編集", key=f"edit_{key}"):
+                st.session_state.editing_key = key
+                st.rerun()
+        with cd:
+            if st.button("削除", key=f"del_{key}"):
+                del st.session_state.triage_records[key]
+                save_records(st.session_state.triage_records)
+                if st.session_state.editing_key == key:
+                    st.session_state.editing_key = None
+                st.rerun()
+
+    # 台帳一括生成ボタン
+    if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
+        all_records = st.session_state.triage_records
+        if all_records:
+            # case_no順にソート
+            sorted_bulk = sorted(all_records.items(), key=lambda x: int(x[1].get("case_no", 99)))
+            all_images = []  # Gmail添付用
+            for key, rec in sorted_bulk:
+                data = rec["data"]
+                shift = rec.get("shift","夜勤")
+                recorder = rec.get("recorder","前川")
+                origin = rec.get("origin","中央")
+                history_yn = rec.get("history_yn","無")
+                history_dept = rec.get("history_dept","")
+                decision = rec.get("decision","応需")
+                res = rec.get("res",{})
+                case_no = rec.get("case_no", 1)
+                free_note = rec.get("free_note","")
+                kana = data.get("kana","").strip()
+                display = kana if kana else key
+                st.write(f"**{case_no}. {display}**")
+                result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
+                                       decision, res, case_no, free_note)
+                st.image(result, use_container_width=True)
+                buf = io.BytesIO()
+                result.save(buf, format="JPEG", quality=95)
+                img_bytes = buf.getvalue()
+                # ファイル名に患者名を含めない（個人情報保護）
+                _age  = data.get("age","")
+                _sex  = "M" if data.get("gender")=="1" else ("F" if data.get("gender")=="2" else "")
+                try:
+                    _dt_raw = data.get("dt_str","")
+                    _dp = _dt_raw.split("（")[0].strip(); _tp = _dt_raw.split("）")[-1].strip() if "）" in _dt_raw else ""
+                    _m,_d = _dp.split("/"); _hm = _tp.replace(":","")
+                    from datetime import date as _d2; _y = _d2.today().year
+                    _dt = f"{_y}{int(_m):02d}{int(_d):02d}_{_hm[:4]}"
+                except: _dt = ""
+                filename = f"triage_{case_no:02d}_{_dt}_{_age}{_sex}.jpg"
+                all_images.append((filename, img_bytes))
+            # セッションに保存（Gmail送信用）
+            st.session_state.bulk_images = all_images
+            st.success(f"✅ {len(all_images)}件の台帳を生成しました。")
+
+    # 一括PDFダウンロード（A4・余白付き）
+    if st.session_state.get("bulk_images"):
+        try:
+            from reportlab.pdfgen import canvas as rl_canvas
+            from reportlab.lib.pagesizes import A4
+            from reportlab.lib.utils import ImageReader
+            from PIL import Image as PILImage
+
+            A4_W, A4_H = A4
+            MARGIN = 28  # 10mm余白
+            avail_w = A4_W - 2*MARGIN
+            avail_h = A4_H - 2*MARGIN
+
+            pdf_buf = io.BytesIO()
+            c = rl_canvas.Canvas(pdf_buf, pagesize=A4)
+            for _, img_bytes in st.session_state.bulk_images:
+                img = PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
+                iw, ih = img.size
+                scale = min(avail_w/iw, avail_h/ih)
+                pw, ph = iw*scale, ih*scale
+                x = MARGIN + (avail_w - pw) / 2
+                y = MARGIN + (avail_h - ph) / 2
+                img_buf = io.BytesIO()
+                img.save(img_buf, format="JPEG", quality=95)
+                img_buf.seek(0)
+                c.drawImage(ImageReader(img_buf), x, y, width=pw, height=ph)
+                c.showPage()
+            c.save()
+            pdf_buf.seek(0)
+            from datetime import date
+            pdf_name = f"triage_{date.today().strftime('%Y%m%d')}.pdf"
+            st.download_button(
+                "📄 全台帳を1つのPDFで保存（A4印刷用）",
+                pdf_buf.getvalue(), pdf_name, "application/pdf",
+                use_container_width=True, type="primary"
+            )
+        except Exception as e:
+            st.error(f"PDF生成エラー: {e}")
+
+    st.divider()
+    # 一括削除ボタン（確認あり）
+    if "confirm_clear" not in st.session_state:
+        st.session_state.confirm_clear = False
+
+    if not st.session_state.confirm_clear:
+        if st.button("🗑️ 保存済み患者を一括削除", use_container_width=True):
+            st.session_state.confirm_clear = True
+            st.rerun()
+    else:
+        st.warning("⚠️ 保存済み患者を全員削除します。この操作は取り消せません。")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("✅ はい、全削除する", type="primary", use_container_width=True):
+                st.session_state.triage_records = {}
+                save_records({})
+                st.session_state.confirm_clear = False
+                st.rerun()
+        with c2:
+            if st.button("❌ キャンセル", use_container_width=True):
+                st.session_state.confirm_clear = False
+                st.rerun()
+
+    st.divider()
