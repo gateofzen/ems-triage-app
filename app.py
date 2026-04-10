@@ -285,21 +285,32 @@ def make_print_widget(pil_img, key="print"):
     buf = io.BytesIO()
     pil_img.save(buf, format="JPEG", quality=95)
     b64 = base64.b64encode(buf.getvalue()).decode()
+    # HTMLをJSの文字列としてBlobに変換し、window.parent.openで新タブ印刷
     html = f"""
 <style>
 .print-btn {{
   display:block; width:100%; padding:5px 14px;
-  background:transparent; color:inherit;
-  border:1px solid rgba(250,250,250,0.2);
+  background:transparent; color:#fff;
+  border:1px solid rgba(250,250,250,0.4);
   border-radius:4px; font-size:14px; cursor:pointer;
-  font-family:sans-serif; text-align:center;
+  font-family:sans-serif; text-align:center; box-sizing:border-box;
 }}
 .print-btn:hover {{ border-color:#f63366; color:#f63366; }}
 </style>
 <button class="print-btn" onclick="
-  var w=window.open('','_blank');
-  w.document.write('<html><head><style>@page{{size:A4;margin:0}}body{{margin:0;padding:0}}img{{width:100%;height:auto}}</style></head><body><img src=\"data:image/jpeg;base64,{b64}\"><script>window.onload=function(){{window.print();window.onafterprint=function(){{window.close();}}}}</scr'+'ipt></body></html>');
-  w.document.close();
+(function(){{
+  var html = '<!DOCTYPE html><html><head><style>'
+    + '@page{{size:A4;margin:0}}'
+    + 'body{{margin:0;padding:0;background:#fff}}'
+    + 'img{{width:100%;height:auto;display:block}}'
+    + '</style></head><body>'
+    + '<img src=\\'data:image/jpeg;base64,{b64}\\'>'
+    + '<scr'+'ipt>window.onload=function(){{window.print();}};<\\/scr'+'ipt>'
+    + '</body></html>';
+  var blob = new Blob([html], {{type:'text/html'}});
+  var url = URL.createObjectURL(blob);
+  (window.parent || window).open(url, '_blank');
+}})();
 ">🖨️ 印刷</button>
 """
     return html
@@ -1094,17 +1105,22 @@ if st.session_state.input_mode == "qr":
             st.info("ペースト機能不可")
     with _qc2:
         st.markdown("""<style>
-        /* アップローダーをボタン風に */
-        [data-testid="stFileUploaderDropzone"] {
-            padding: 0 !important; min-height: 0 !important;
-            background: transparent !important; border: 1px solid rgba(250,250,250,0.2) !important;
-            border-radius: 4px !important;
+        [data-testid="stFileUploader"] { width: 100%; }
+        [data-testid="stFileUploader"] section {
+            border: none !important; padding: 0 !important; background: transparent !important;
         }
+        [data-testid="stFileUploaderDropzone"] {
+            padding: 0 !important; min-height: 0 !important; background: #1a73e8 !important;
+            border: none !important; border-radius: 4px !important;
+        }
+        [data-testid="stFileUploaderDropzone"]:hover { background: #1558b0 !important; }
         [data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
         [data-testid="stFileUploaderDropzone"] button {
-            width: 100% !important; border-radius: 4px !important;
+            background: transparent !important; color: white !important;
+            border: none !important; width: 100% !important; font-size: 14px !important;
+            padding: 7px 14px !important;
         }
-        [data-testid="stFileUploader"] section { border: none !important; padding: 0 !important; }
+        [data-testid="stFileUploaderDropzone"] button svg { fill: white !important; }
         [data-testid="stFileUploader"] section > div:last-child { display: none !important; }
         </style>""", unsafe_allow_html=True)
         uploaded = st.file_uploader(
