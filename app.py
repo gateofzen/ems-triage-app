@@ -288,11 +288,13 @@ def make_print_widget(pil_img, key="print"):
     html = f"""
 <style>
 .print-btn {{
-  display:block; width:100%; padding:8px;
-  background:#555; color:white; border:none; border-radius:4px;
-  font-size:14px; cursor:pointer; text-align:center;
+  display:block; width:100%; padding:5px 14px;
+  background:transparent; color:inherit;
+  border:1px solid rgba(250,250,250,0.2);
+  border-radius:4px; font-size:14px; cursor:pointer;
+  font-family:sans-serif; text-align:center;
 }}
-.print-btn:hover {{ background:#333; }}
+.print-btn:hover {{ border-color:#f63366; color:#f63366; }}
 </style>
 <button class="print-btn" onclick="
   var w=window.open('','_blank');
@@ -1091,18 +1093,22 @@ if st.session_state.input_mode == "qr":
         except ImportError:
             st.info("ペースト機能不可")
     with _qc2:
-        # アップローダーをペーストボタンと同じスタイルに
         st.markdown("""<style>
-        [data-testid="stFileUploader"] section { padding: 0 !important; border: none !important; }
-        [data-testid="stFileUploader"] section > div { display: none; }
-        [data-testid="stFileUploaderDropzone"] { background: #1a73e8 !important; border-radius: 4px !important; border: none !important; }
-        [data-testid="stFileUploaderDropzone"]:hover { background: #1558b0 !important; }
-        [data-testid="stFileUploaderDropzone"] span { color: white !important; font-size: 14px !important; }
-        [data-testid="stFileUploaderDropzone"] svg { fill: white !important; }
+        /* アップローダーをボタン風に */
+        [data-testid="stFileUploaderDropzone"] {
+            padding: 0 !important; min-height: 0 !important;
+            background: transparent !important; border: 1px solid rgba(250,250,250,0.2) !important;
+            border-radius: 4px !important;
+        }
         [data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
+        [data-testid="stFileUploaderDropzone"] button {
+            width: 100% !important; border-radius: 4px !important;
+        }
+        [data-testid="stFileUploader"] section { border: none !important; padding: 0 !important; }
+        [data-testid="stFileUploader"] section > div:last-child { display: none !important; }
         </style>""", unsafe_allow_html=True)
         uploaded = st.file_uploader(
-            "📷 画像をアップロード",
+            "画像をアップロード",
             type=["png", "jpg", "jpeg"],
             label_visibility="collapsed",
             key=f"uploader_{st.session_state.uploader_key}"
