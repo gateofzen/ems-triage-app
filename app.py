@@ -280,39 +280,35 @@ def add_margin_to_image(pil_img, margin_mm=10):
     return canvas
 
 def make_print_widget(pil_img, key="print"):
-    """ブラウザ印刷ボタンをcomponents.htmlで表示"""
+    """印刷ボタン：クリックするとiframe内で画像を表示しwindow.print()を実行"""
     import base64
     buf = io.BytesIO()
     pil_img.save(buf, format="JPEG", quality=95)
     b64 = base64.b64encode(buf.getvalue()).decode()
-    # HTMLをJSの文字列としてBlobに変換し、window.parent.openで新タブ印刷
-    html = f"""
+    html = f"""<!DOCTYPE html>
+<html><head>
 <style>
-.print-btn {{
-  display:block; width:100%; padding:5px 14px;
-  background:transparent; color:#fff;
-  border:1px solid rgba(250,250,250,0.4);
-  border-radius:4px; font-size:14px; cursor:pointer;
-  font-family:sans-serif; text-align:center; box-sizing:border-box;
-}}
-.print-btn:hover {{ border-color:#f63366; color:#f63366; }}
+  body {{ margin:0; padding:0; background:transparent; font-family:sans-serif; }}
+  @media screen {{
+    .img-wrap {{ display:none; }}
+    .print-btn {{
+      display:block; width:100%; padding:6px 14px; box-sizing:border-box;
+      background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.4);
+      border-radius:4px; font-size:14px; cursor:pointer;
+    }}
+    .print-btn:hover {{ border-color:#f63366; color:#f63366; }}
+  }}
+  @media print {{
+    .print-btn {{ display:none; }}
+    .img-wrap {{ display:block; }}
+    @page {{ size:A4; margin:0; }}
+    img {{ width:100%; height:auto; }}
+  }}
 </style>
-<button class="print-btn" onclick="
-(function(){{
-  var html = '<!DOCTYPE html><html><head><style>'
-    + '@page{{size:A4;margin:0}}'
-    + 'body{{margin:0;padding:0;background:#fff}}'
-    + 'img{{width:100%;height:auto;display:block}}'
-    + '</style></head><body>'
-    + '<img src=\\'data:image/jpeg;base64,{b64}\\'>'
-    + '<scr'+'ipt>window.onload=function(){{window.print();}};<\\/scr'+'ipt>'
-    + '</body></html>';
-  var blob = new Blob([html], {{type:'text/html'}});
-  var url = URL.createObjectURL(blob);
-  (window.parent || window).open(url, '_blank');
-}})();
-">🖨️ 印刷</button>
-"""
+</head><body>
+<div class="img-wrap"><img src="data:image/jpeg;base64,{b64}"></div>
+<button class="print-btn" onclick="window.print()">🖨️ 印刷</button>
+</body></html>"""
     return html
 
 
@@ -891,7 +887,7 @@ if editing_key and editing_key in records:
                                    safe_triage_fname(data, case_no), "image/jpeg",
                                    use_container_width=True, key="ed_save_btn")
             with _pb2:
-                components.html(make_print_widget(result, "ed_print"), height=44)
+                components.html(make_print_widget(result, "ed_print"), height=42)
     with col_cancel:
         if st.button("キャンセル", use_container_width=True):
             st.session_state.editing_key = None
@@ -1075,14 +1071,12 @@ if st.session_state.manual_mode:
                                        safe_triage_fname(data, case_no), "image/jpeg",
                                        use_container_width=True, key="m_dl")
                 with _mp2:
-                    components.html(make_print_widget(result, "m_print"), height=44)
+                    components.html(make_print_widget(result, "m_print"), height=42)
 
 # ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
 
     _qc1, _qc2 = st.columns(2)
-    # 200MB per file表示を非表示
-    st.markdown('<style>[data-testid="stFileUploaderDropzoneInstructions"]{display:none}</style>', unsafe_allow_html=True)
     with _qc1:
         try:
             from streamlit_paste_button import paste_image_button as pbutton
@@ -1104,24 +1098,26 @@ if st.session_state.input_mode == "qr":
         except ImportError:
             st.info("ペースト機能不可")
     with _qc2:
+        # ファイルアップローダーをボタン風に（全要素非表示→Browse filesのみ表示）
         st.markdown("""<style>
-        [data-testid="stFileUploader"] { width: 100%; }
-        [data-testid="stFileUploader"] section {
-            border: none !important; padding: 0 !important; background: transparent !important;
+        div[data-testid="stFileUploader"] > label { display:none !important; }
+        div[data-testid="stFileUploader"] section {
+            border:none !important; padding:0 !important; background:transparent !important;
         }
-        [data-testid="stFileUploaderDropzone"] {
-            padding: 0 !important; min-height: 0 !important; background: #1a73e8 !important;
-            border: none !important; border-radius: 4px !important;
+        div[data-testid="stFileUploader"] section > div:nth-child(2) { display:none !important; }
+        div[data-testid="stFileUploaderDropzone"] {
+            padding:0 !important; border:none !important; border-radius:4px !important;
+            min-height:0 !important; background:#1a73e8 !important;
         }
-        [data-testid="stFileUploaderDropzone"]:hover { background: #1558b0 !important; }
-        [data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
-        [data-testid="stFileUploaderDropzone"] button {
-            background: transparent !important; color: white !important;
-            border: none !important; width: 100% !important; font-size: 14px !important;
-            padding: 7px 14px !important;
+        div[data-testid="stFileUploaderDropzone"]:hover { background:#1558b0 !important; }
+        div[data-testid="stFileUploaderDropzoneInstructions"] { display:none !important; }
+        div[data-testid="stFileUploaderDropzone"] > button {
+            width:100% !important; background:transparent !important; color:white !important;
+            border:none !important; padding:7px 14px !important; font-size:14px !important;
+            cursor:pointer !important;
         }
-        [data-testid="stFileUploaderDropzone"] button svg { fill: white !important; }
-        [data-testid="stFileUploader"] section > div:last-child { display: none !important; }
+        div[data-testid="stFileUploaderDropzone"] > button > span { color:white !important; }
+        div[data-testid="stFileUploaderDropzone"] > button svg { fill:white !important; }
         </style>""", unsafe_allow_html=True)
         uploaded = st.file_uploader(
             "画像をアップロード",
@@ -1246,4 +1242,4 @@ if st.session_state.input_mode == "qr":
                                            safe_triage_fname(data, case_no), "image/jpeg",
                                            use_container_width=True, key="qr_save_btn")
                     with _qp2:
-                        components.html(make_print_widget(result, "qr_print"), height=44)
+                        components.html(make_print_widget(result, "qr_print"), height=42)
