@@ -1035,58 +1035,30 @@ if st.session_state.manual_mode:
 
 # ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
-    st.caption("📋 **PC利用時**: スクリーンショット後にCtrl+Vでペースト可 / 📱 **スマホ**: 下のボタンからカメラ撮影")
+    st.caption("📋 **PC利用時**: クリップボードから貼り付け / 📱 **スマホ**: 下のボタンからカメラ撮影")
 
-    # クリップボードペーストゾーン（PC向け）
-    paste_result = components.html("""
-<div id="paste-zone" style="
-    border: 2px dashed #888; border-radius:8px; padding:18px;
-    text-align:center; color:#888; font-size:14px; cursor:pointer;
-    background:#f8f8f8; margin-bottom:8px; user-select:none;">
-    🖼️ ここをクリックしてCtrl+V（ペースト）
-</div>
-<div id="paste-msg" style="font-size:12px;color:#888;text-align:center"></div>
-<script>
-const zone = document.getElementById('paste-zone');
-const msg  = document.getElementById('paste-msg');
-
-// ゾーンクリックでフォーカス
-zone.addEventListener('click', () => { zone.focus(); zone.style.borderColor='#1a73e8'; });
-
-// ペーストイベント（ゾーン外でも拾う）
-document.addEventListener('paste', (e) => {
-    const items = e.clipboardData && e.clipboardData.items;
-    if (!items) return;
-    for (let i=0; i<items.length; i++) {
-        if (items[i].type.startsWith('image/')) {
-            const file = items[i].getAsFile();
-            const reader = new FileReader();
-            reader.onload = function(ev) {
-                const b64 = ev.target.result; // data:image/png;base64,...
-                zone.style.background = '#e8f4e8';
-                zone.style.borderColor = '#1a7340';
-                zone.innerHTML = '✅ 画像をペーストしました。処理中...';
-                msg.textContent = file.name || 'clipboard_image.png';
-                // Streamlitに送信
-                window.parent.postMessage({type:'streamlit:setComponentValue', value: b64}, '*');
-            };
-            reader.readAsDataURL(file);
-            break;
-        }
-    }
-});
-</script>
-""", height=90)
-
-    # ペーストされた画像をセッションに保存
-    if paste_result and isinstance(paste_result, str) and paste_result.startswith("data:image"):
-        import base64 as _b64
-        _header, _data = paste_result.split(",", 1)
-        _img_bytes = _b64.b64decode(_data)
-        if _img_bytes != st.session_state.get("uploaded_bytes"):
-            st.session_state.uploaded_bytes = _img_bytes
-            st.session_state.triage_raw = None
-            st.rerun()
+    # クリップボードペーストボタン（PC向け）
+    try:
+        from streamlit_paste_button import paste_image_button as pbutton
+        paste_result = pbutton(
+            label="📋 クリップボードから画像を貼り付け（PC用）",
+            key="paste_btn",
+            background_color="#1a73e8",
+            hover_background_color="#1558b0",
+            text_color="#ffffff",
+        )
+        if paste_result.image_data is not None:
+            # PIL Imageをバイトに変換
+            _buf = io.BytesIO()
+            paste_result.image_data.save(_buf, format="PNG")
+            _bytes = _buf.getvalue()
+            if _bytes != st.session_state.get("uploaded_bytes"):
+                st.session_state.uploaded_bytes = _bytes
+                st.session_state.triage_raw = None
+                st.success("✅ クリップボードから画像を取得しました。QRコードを読み取り中...")
+                st.rerun()
+    except ImportError:
+        st.info("PC用ペースト機能は利用不可です。ファイルアップローダーをご使用ください。")
 
     uploaded = st.file_uploader(
         "📷 画像を選択（スクリーンショットまたはカメラ撮影）",
