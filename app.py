@@ -21,9 +21,11 @@ div[data-testid="stDownloadButton"] > button {
     height: 38px !important; padding: 0 14px !important;
     width: 100% !important;
 }
-/* カスタムコンポーネント(ペーストボタン)の高さ調整 */
-iframe[title="streamlit_paste_button.paste_image_button"] {
+/* ペーストボタンiframe - 複数セレクタで対応 */
+iframe[title="streamlit_paste_button.paste_image_button"],
+div[data-testid="stCustomComponentV1"] > iframe {
     height: 38px !important; min-height: 38px !important;
+    max-height: 38px !important;
 }
 </style>""", unsafe_allow_html=True)
 
@@ -304,10 +306,12 @@ def make_print_widget(pil_img, key="print"):
   body {{ margin:0; padding:0; background:transparent; font-family:sans-serif; }}
   @media screen {{
     .img-wrap {{ display:none; }}
-      .print-btn {{
-      display:block; width:100%; padding:6px 14px; box-sizing:border-box;
+    .print-btn {{
+      display:block; width:100%; height:38px; padding:0 14px; box-sizing:border-box;
       background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.4);
-      border-radius:4px; font-size:14px; cursor:pointer;
+      border-radius:4px; font-size:0.875rem; font-weight:400;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      cursor:pointer; letter-spacing:normal; line-height:1;
     }}
     .print-btn:hover {{ border-color:#f63366; color:#f63366; }}
   }}
