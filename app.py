@@ -263,6 +263,28 @@ def parse_qr(raw):
 
 # ===== テンプレート描画 =====
 
+def make_print_pdf(pil_img):
+    """PIL ImageをA4余白付きPDFバイトに変換"""
+    try:
+        from reportlab.pdfgen import canvas as rl_canvas
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.utils import ImageReader
+        A4_W, A4_H = A4
+        MARGIN = 28
+        avail_w = A4_W - 2*MARGIN; avail_h = A4_H - 2*MARGIN
+        iw, ih = pil_img.size
+        scale = min(avail_w/iw, avail_h/ih)
+        pw, ph = iw*scale, ih*scale
+        x = MARGIN + (avail_w - pw)/2; y = MARGIN + (avail_h - ph)/2
+        buf = io.BytesIO()
+        c = rl_canvas.Canvas(buf, pagesize=A4)
+        img_buf = io.BytesIO(); pil_img.save(img_buf, format="JPEG", quality=95); img_buf.seek(0)
+        c.drawImage(ImageReader(img_buf), x, y, width=pw, height=ph)
+        c.save(); buf.seek(0)
+        return buf.getvalue()
+    except Exception:
+        return None
+
 def safe_triage_fname(data, case_no):
     """患者名を含まない安全なファイル名を生成"""
     dt_raw = data.get("dt_str","")
@@ -283,7 +305,7 @@ def safe_triage_fname(data, case_no):
     sex = "M" if data.get("gender")=="1" else ("F" if data.get("gender")=="2" else "")
     return f"triage_{case_no:02d}_{dt}_{age}{sex}.jpg"
 
-def render_triage(data, recorder, origin, shift, history_yn, history_dept, decision, res, case_no, free_note="", hide_name=False):
+def render_triage(data, recorder, origin, shift, history_yn, history_dept, decision, res, case_no, free_note=""):
     base = Image.open("template.png").convert("RGB")
     d = ImageDraw.Draw(base)
 
@@ -332,9 +354,8 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
     cell_w_name = 543 - 135
     kw = getlength(data["kanji"], f44)
     kx = 135 + (cell_w_name - kw) // 2
-    if not hide_name:
-        d.text((kx, 245), data["kana"], font=f18, fill="black")
-        d.text((kx, 268), data["kanji"], font=f44, fill="black")
+    d.text((kx, 245), data["kana"], font=f18, fill="black")
+    d.text((kx, 268), data["kanji"], font=f44, fill="black")
 
     f30 = get_font(30)
 
@@ -577,10 +598,6 @@ if records:
                 st.rerun()
 
     # 台帳一括生成ボタン
-    hide_name_opt = st.checkbox(
-        "🔒 PDFの患者氏名を空欄にする（印刷後に手書き記入・プライバシー保護）",
-        value=True, key="hide_name_opt"
-    )
     if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
         all_records = st.session_state.triage_records
         if all_records:
@@ -602,8 +619,7 @@ if records:
                 display = kana if kana else key
                 st.write(f"**{case_no}. {display}**")
                 result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
-                                       decision, res, case_no, free_note,
-                                       hide_name=hide_name_opt)
+                                       decision, res, case_no, free_note)
                 st.image(result, use_container_width=True)
                 buf = io.BytesIO()
                 result.save(buf, format="JPEG", quality=95)
@@ -728,6 +744,11 @@ if editing_key and editing_key in records:
         e_kanji = st.text_input("患者氏名（漢字）", value=data.get("kanji",""), key="ed_kanji")
         e_kana  = st.text_input("患者氏名（カナ）",  value=data.get("kana",""),  key="ed_kana")
         e_age   = st.text_input("年齢",  value=data.get("age",""),  key="ed_age")
+        # 生年月日を年齢の近くに表示
+        birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
+        dob_str = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else ""
+        if dob_str:
+            st.caption(f"生年月日: {dob_str}")
         gender_opts = ["1（男）","2（女）","未記載"]
         g_cur = "1（男）" if data.get("gender")=="1" else ("2（女）" if data.get("gender")=="2" else "未記載")
         e_gender_sel = st.radio("性別", gender_opts, index=gender_opts.index(g_cur), horizontal=True, key="ed_gender")
@@ -774,9 +795,7 @@ if editing_key and editing_key in records:
     with eo5: st.markdown(f"<div style='font-size:13px;padding-top:28px'>{data.get('spo2_before','')}→{data.get('spo2','')}</div>", unsafe_allow_html=True)
 
     shift = rec.get("shift","日勤")
-    birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
-    dob_str = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else "不明"
-    st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**　生年月日: {dob_str}")
+    st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**")
     free_note = st.text_area("自由記載", value=rec.get("free_note",""), height=80, key="ed_free")
 
     # 転帰
@@ -851,8 +870,17 @@ if editing_key and editing_key in records:
             st.image(result, use_container_width=True)
             buf = io.BytesIO()
             result.save(buf, format="JPEG", quality=95)
-            st.download_button("📥 台帳を保存", buf.getvalue(),
-                               safe_triage_fname(data, case_no), "image/jpeg")
+            _pb1, _pb2 = st.columns(2)
+            with _pb1:
+                st.download_button("📥 台帳を保存", buf.getvalue(),
+                                   safe_triage_fname(data, case_no), "image/jpeg",
+                                   use_container_width=True, key="ed_save_btn")
+            with _pb2:
+                _pdf = make_print_pdf(result)
+                if _pdf:
+                    st.download_button("🖨️ 印刷用PDF", _pdf,
+                                       safe_triage_fname(data, case_no).replace(".jpg",".pdf"),
+                                       "application/pdf", use_container_width=True, key="ed_print_btn")
     with col_cancel:
         if st.button("キャンセル", use_container_width=True):
             st.session_state.editing_key = None
@@ -1030,42 +1058,50 @@ if st.session_state.manual_mode:
                 st.image(result, use_container_width=True)
                 buf = io.BytesIO()
                 result.save(buf, format="JPEG", quality=95)
-                st.download_button("📥 台帳を保存", buf.getvalue(),
-                                   safe_triage_fname(data, case_no), "image/jpeg", key="m_dl")
+                _mp1, _mp2 = st.columns(2)
+                with _mp1:
+                    st.download_button("📥 台帳を保存", buf.getvalue(),
+                                       safe_triage_fname(data, case_no), "image/jpeg",
+                                       use_container_width=True, key="m_dl")
+                with _mp2:
+                    _mpdf = make_print_pdf(result)
+                    if _mpdf:
+                        st.download_button("🖨️ 印刷用PDF", _mpdf,
+                                           safe_triage_fname(data, case_no).replace(".jpg",".pdf"),
+                                           "application/pdf", use_container_width=True, key="m_print")
 
 # ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
     st.caption("📋 **PC利用時**: クリップボードから貼り付け / 📱 **スマホ**: 下のボタンからカメラ撮影")
 
-    # クリップボードペーストボタン（PC向け）
-    try:
-        from streamlit_paste_button import paste_image_button as pbutton
-        paste_result = pbutton(
-            label="📋 クリップボードから画像を貼り付け（PC用）",
-            key="paste_btn",
-            background_color="#1a73e8",
-            hover_background_color="#1558b0",
-            text_color="#ffffff",
+    _qc1, _qc2 = st.columns(2)
+    with _qc1:
+        try:
+            from streamlit_paste_button import paste_image_button as pbutton
+            paste_result = pbutton(
+                label="📋 クリップボードから貼り付け",
+                key="paste_btn",
+                background_color="#1a73e8",
+                hover_background_color="#1558b0",
+                text_color="#ffffff",
+            )
+            if paste_result.image_data is not None:
+                _buf = io.BytesIO()
+                paste_result.image_data.save(_buf, format="PNG")
+                _bytes = _buf.getvalue()
+                if _bytes != st.session_state.get("uploaded_bytes"):
+                    st.session_state.uploaded_bytes = _bytes
+                    st.session_state.triage_raw = None
+                    st.rerun()
+        except ImportError:
+            st.info("ペースト機能不可")
+    with _qc2:
+        uploaded = st.file_uploader(
+            "📷 画像を選択",
+            type=["png", "jpg", "jpeg"],
+            label_visibility="collapsed",
+            key=f"uploader_{st.session_state.uploader_key}"
         )
-        if paste_result.image_data is not None:
-            # PIL Imageをバイトに変換
-            _buf = io.BytesIO()
-            paste_result.image_data.save(_buf, format="PNG")
-            _bytes = _buf.getvalue()
-            if _bytes != st.session_state.get("uploaded_bytes"):
-                st.session_state.uploaded_bytes = _bytes
-                st.session_state.triage_raw = None
-                st.success("✅ クリップボードから画像を取得しました。QRコードを読み取り中...")
-                st.rerun()
-    except ImportError:
-        st.info("PC用ペースト機能は利用不可です。ファイルアップローダーをご使用ください。")
-
-    uploaded = st.file_uploader(
-        "📷 画像を選択（スクリーンショットまたはカメラ撮影）",
-        type=["png", "jpg", "jpeg"],
-        help="カメラ撮影時：OSの「QRコード認識できません」メッセージは無視してそのまま撮影→アップロードしてください",
-        key=f"uploader_{st.session_state.uploader_key}"
-    )
 
     # アップロードされたファイルのバイトをセッションに保持
     if uploaded is not None:
@@ -1094,7 +1130,6 @@ if st.session_state.input_mode == "qr":
         if raw:
             data = parse_qr(raw)
             shift = detect_shift(data["dt_str"])
-            st.info(f"🕐 受付時刻: {data['dt_str']}　→ 勤務帯: **{shift}**（8:30-16:30=日勤、それ以外=夜勤）")
             kanji = data.get("kanji","")
             birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
             dob = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else ""
@@ -1104,31 +1139,6 @@ if st.session_state.input_mode == "qr":
             if info_parts:
                 st.markdown(f"**患者:** {'　'.join(info_parts)}")
 
-            with st.expander("🔍 QRデータ確認（デバッグ用）", expanded=False):
-                st.write(f"**救急隊名候補（自動）:** `{data['team_name']}`")
-                for i, v in enumerate(data["items"]):
-                    label = ""
-                    if i == 1: label = "← 依頼日時"
-                    elif i == 4: label = "← 氏名"
-                    elif i == 5: label = "← 性別"
-                    elif i == 8: label = "← 主訴"
-                    elif i == 9: label = "← 経過等"
-                    elif i == 13: label = "← 生年月日"
-                    elif i == 14: label = "← 年齢"
-                    elif i == 15: label = "← JCS"
-                    elif i == 16: label = "← (酸素関連)"
-                    elif i == 17: label = "← (酸素関連)"
-                    elif i == 18: label = "← (酸素関連)"
-                    elif i == 43: label = "← SpO2(酸素投与後)"
-                    elif i == 44: label = "← 酸素流量(L/min)"
-                    elif i == 45: label = "← 酸素デバイス"
-                    elif i == 19: label = "← BP(上)"
-                    elif i == 20: label = "← BP(下)"
-                    elif i == 21: label = "← HR"
-                    elif i == 22: label = "← RR"
-                    elif i == 23: label = "← BT"
-                    elif i == 24: label = "← SpO2"
-                    st.text(f"[{i:2d}] {v[:80]}  {label}")
 
             st.subheader("台帳情報の入力")
             col1, col2 = st.columns(2)
@@ -1203,5 +1213,14 @@ if st.session_state.input_mode == "qr":
                     st.image(result, use_container_width=True)
                     buf = io.BytesIO()
                     result.save(buf, format="JPEG", quality=95)
-                    st.download_button("📥 台帳を保存", buf.getvalue(),
-                                       safe_triage_fname(data, case_no), "image/jpeg")
+                    _qp1, _qp2 = st.columns(2)
+                    with _qp1:
+                        st.download_button("📥 台帳を保存", buf.getvalue(),
+                                           safe_triage_fname(data, case_no), "image/jpeg",
+                                           use_container_width=True, key="qr_save_btn")
+                    with _qp2:
+                        _qpdf = make_print_pdf(result)
+                        if _qpdf:
+                            st.download_button("🖨️ 印刷用PDF", _qpdf,
+                                               safe_triage_fname(data, case_no).replace(".jpg",".pdf"),
+                                               "application/pdf", use_container_width=True, key="qr_print_btn")
