@@ -14,6 +14,19 @@ from datetime import datetime
 st.set_page_config(page_title="トリアージ台帳自動作成", layout="centered")
 st.title("🚑 トリアージ台帳自動作成")
 
+# ボタン高さ統一CSS
+st.markdown("""<style>
+/* ダウンロードボタンをcomponents.htmlボタンと同じ高さに */
+div[data-testid="stDownloadButton"] > button {
+    height: 38px !important; padding: 0 14px !important;
+    width: 100% !important;
+}
+/* カスタムコンポーネント(ペーストボタン)の高さ調整 */
+iframe[title="streamlit_paste_button.paste_image_button"] {
+    height: 38px !important; min-height: 38px !important;
+}
+</style>""", unsafe_allow_html=True)
+
 # モバイルでカラムが縦積みにならないよう強制
 st.markdown("""
 <style>
@@ -307,7 +320,7 @@ def make_print_widget(pil_img, key="print"):
 </style>
 </head><body>
 <div class="img-wrap"><img src="data:image/jpeg;base64,{b64}"></div>
-<button class="print-btn" onclick="window.print()">🖨️ 印刷</button>
+<button class="print-btn" onclick="window.print()">🖨️ 台帳を印刷</button>
 </body></html>"""
     return html
 
@@ -887,7 +900,7 @@ if editing_key and editing_key in records:
                                    safe_triage_fname(data, case_no), "image/jpeg",
                                    use_container_width=True, key="ed_save_btn")
             with _pb2:
-                components.html(make_print_widget(result, "ed_print"), height=42)
+                components.html(make_print_widget(result, "ed_print"), height=38)
     with col_cancel:
         if st.button("キャンセル", use_container_width=True):
             st.session_state.editing_key = None
@@ -1071,7 +1084,7 @@ if st.session_state.manual_mode:
                                        safe_triage_fname(data, case_no), "image/jpeg",
                                        use_container_width=True, key="m_dl")
                 with _mp2:
-                    components.html(make_print_widget(result, "m_print"), height=42)
+                    components.html(make_print_widget(result, "m_print"), height=38)
 
 # ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
@@ -1124,7 +1137,7 @@ if st.session_state.input_mode == "qr":
             r.readAsDataURL(f);
           ">
         """
-        upload_result = components.html(upload_html, height=42)
+        upload_result = components.html(upload_html, height=38)
         # ペーストされた画像データを処理
         if upload_result and isinstance(upload_result, str) and upload_result.startswith("data:image"):
             import base64 as _b64
@@ -1253,4 +1266,4 @@ if st.session_state.input_mode == "qr":
                                            safe_triage_fname(data, case_no), "image/jpeg",
                                            use_container_width=True, key="qr_save_btn")
                     with _qp2:
-                        components.html(make_print_widget(result, "qr_print"), height=42)
+                        components.html(make_print_widget(result, "qr_print"), height=38)
