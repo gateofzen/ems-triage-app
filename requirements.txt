@@ -4,3 +4,4 @@ numpy
 Pillow
 pyzbar
 reportlab
+streamlit-paste-button
