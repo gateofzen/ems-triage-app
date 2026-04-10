@@ -279,25 +279,27 @@ def add_margin_to_image(pil_img, margin_mm=10):
     canvas.paste(pil_img.resize((nw,nh), PILImg.LANCZOS), (x,y))
     return canvas
 
-def make_print_html(pil_img):
-    """ブラウザ印刷用HTMLを生成（余白付きA4）"""
+def make_print_widget(pil_img, key="print"):
+    """ブラウザ印刷ボタンをcomponents.htmlで表示"""
     import base64
-    margined = add_margin_to_image(pil_img)
     buf = io.BytesIO()
-    margined.save(buf, format="JPEG", quality=95)
+    pil_img.save(buf, format="JPEG", quality=95)
     b64 = base64.b64encode(buf.getvalue()).decode()
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
+    html = f"""
 <style>
-  @page {{ size: A4; margin: 0; }}
-  body {{ margin: 0; padding: 0; }}
-  img {{ width: 100%; height: auto; display: block; }}
-  @media print {{ body {{ margin: 0; }} }}
+.print-btn {{
+  display:block; width:100%; padding:8px;
+  background:#555; color:white; border:none; border-radius:4px;
+  font-size:14px; cursor:pointer; text-align:center;
+}}
+.print-btn:hover {{ background:#333; }}
 </style>
-</head><body>
-<img src="data:image/jpeg;base64,{b64}">
-<script>window.onload=function(){{window.print();}};</script>
-</body></html>"""
+<button class="print-btn" onclick="
+  var w=window.open('','_blank');
+  w.document.write('<html><head><style>@page{{size:A4;margin:0}}body{{margin:0;padding:0}}img{{width:100%;height:auto}}</style></head><body><img src=\"data:image/jpeg;base64,{b64}\"><script>window.onload=function(){{window.print();window.onafterprint=function(){{window.close();}}}}</scr'+'ipt></body></html>');
+  w.document.close();
+">🖨️ 印刷</button>
+"""
     return html
 
 
@@ -547,7 +549,7 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
         for i, ln in enumerate(fn_lines):
             d.text((150, 1870 + i * 36), ln, font=f28, fill="black")
 
-    return base
+    return add_margin_to_image(base)
 
 # ===== メインUI =====
 
@@ -753,7 +755,7 @@ if editing_key and editing_key in records:
         g_cur = "1（男）" if data.get("gender")=="1" else ("2（女）" if data.get("gender")=="2" else "未記載")
         e_gender_sel = st.radio("性別", gender_opts, index=gender_opts.index(g_cur), horizontal=True, key="ed_gender")
     with ec2:
-        recorders = ["前川", "森木", "小舘", "遠藤", "提嶋"]
+        recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
         rec_idx = recorders.index(rec.get("recorder","前川")) if rec.get("recorder") in recorders else 0
         e_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="ed_recorder")
         RESCUE_TEAMS_E = ["","中央","大通","桑園","山鼻","北","篠路","新光","東","栄","東苗穂",
@@ -876,11 +878,7 @@ if editing_key and editing_key in records:
                                    safe_triage_fname(data, case_no), "image/jpeg",
                                    use_container_width=True, key="ed_save_btn")
             with _pb2:
-                _phtml = make_print_html(result)
-                if _phtml:
-                    st.download_button("🖨️ 印刷", _phtml.encode(),
-                                       safe_triage_fname(data, case_no).replace(".jpg",".html"),
-                                       "text/html", use_container_width=True, key="ed_print_btn")
+                components.html(make_print_widget(result, "ed_print"), height=44)
     with col_cancel:
         if st.button("キャンセル", use_container_width=True):
             st.session_state.editing_key = None
@@ -996,7 +994,7 @@ if st.session_state.manual_mode:
             next_no = (max(used_nos) + 1) if used_nos else 1
             _def_no = int(data.get("_case_no", min(next_no,15)))
             case_no = st.selectbox("No.", list(range(1, 16)), index=_def_no-1, key="m_case_no")
-            recorders = ["前川", "森木", "小舘", "遠藤", "提嶋"]
+            recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
             rec_idx = recorders.index(st.session_state.get("last_recorder","前川")) if st.session_state.get("last_recorder") in recorders else 0
             recorder = st.selectbox("記載者", recorders, index=rec_idx, key="m_recorder")
             origin = st.text_input("依頼元（救急隊）", value=data.get("team_name","中央"), key="m_origin")
@@ -1064,11 +1062,7 @@ if st.session_state.manual_mode:
                                        safe_triage_fname(data, case_no), "image/jpeg",
                                        use_container_width=True, key="m_dl")
                 with _mp2:
-                    _mphtml = make_print_html(result)
-                    if _mphtml:
-                        st.download_button("🖨️ 印刷", _mphtml.encode(),
-                                           safe_triage_fname(data, case_no).replace(".jpg",".html"),
-                                           "text/html", use_container_width=True, key="m_print")
+                    components.html(make_print_widget(result, "m_print"), height=44)
 
 # ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
@@ -1097,8 +1091,18 @@ if st.session_state.input_mode == "qr":
         except ImportError:
             st.info("ペースト機能不可")
     with _qc2:
+        # アップローダーをペーストボタンと同じスタイルに
+        st.markdown("""<style>
+        [data-testid="stFileUploader"] section { padding: 0 !important; border: none !important; }
+        [data-testid="stFileUploader"] section > div { display: none; }
+        [data-testid="stFileUploaderDropzone"] { background: #1a73e8 !important; border-radius: 4px !important; border: none !important; }
+        [data-testid="stFileUploaderDropzone"]:hover { background: #1558b0 !important; }
+        [data-testid="stFileUploaderDropzone"] span { color: white !important; font-size: 14px !important; }
+        [data-testid="stFileUploaderDropzone"] svg { fill: white !important; }
+        [data-testid="stFileUploaderDropzoneInstructions"] { display: none !important; }
+        </style>""", unsafe_allow_html=True)
         uploaded = st.file_uploader(
-            "📷 画像を選択",
+            "📷 画像をアップロード",
             type=["png", "jpg", "jpeg"],
             label_visibility="collapsed",
             key=f"uploader_{st.session_state.uploader_key}"
@@ -1149,7 +1153,7 @@ if st.session_state.input_mode == "qr":
                 case_no = st.selectbox("No.", list(range(1, 16)), index=next_no-1)
                 if "last_recorder" not in st.session_state:
                     st.session_state.last_recorder = "前川"
-                recorders = ["前川", "森木", "小舘", "遠藤", "提嶋"]
+                recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
                 rec_idx = recorders.index(st.session_state.last_recorder) if st.session_state.last_recorder in recorders else 0
                 recorder = st.selectbox("記載者", recorders, index=rec_idx)
                 origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
@@ -1220,8 +1224,4 @@ if st.session_state.input_mode == "qr":
                                            safe_triage_fname(data, case_no), "image/jpeg",
                                            use_container_width=True, key="qr_save_btn")
                     with _qp2:
-                        _qphtml = make_print_html(result)
-                        if _qphtml:
-                            st.download_button("🖨️ 印刷", _qphtml.encode(),
-                                               safe_triage_fname(data, case_no).replace(".jpg",".html"),
-                                               "text/html", use_container_width=True, key="qr_print_btn")
+                        components.html(make_print_widget(result, "qr_print"), height=44)
