@@ -263,27 +263,43 @@ def parse_qr(raw):
 
 # ===== テンプレート描画 =====
 
-def make_print_pdf(pil_img):
-    """PIL ImageをA4余白付きPDFバイトに変換"""
-    try:
-        from reportlab.pdfgen import canvas as rl_canvas
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.utils import ImageReader
-        A4_W, A4_H = A4
-        MARGIN = 28
-        avail_w = A4_W - 2*MARGIN; avail_h = A4_H - 2*MARGIN
-        iw, ih = pil_img.size
-        scale = min(avail_w/iw, avail_h/ih)
-        pw, ph = iw*scale, ih*scale
-        x = MARGIN + (avail_w - pw)/2; y = MARGIN + (avail_h - ph)/2
-        buf = io.BytesIO()
-        c = rl_canvas.Canvas(buf, pagesize=A4)
-        img_buf = io.BytesIO(); pil_img.save(img_buf, format="JPEG", quality=95); img_buf.seek(0)
-        c.drawImage(ImageReader(img_buf), x, y, width=pw, height=ph)
-        c.save(); buf.seek(0)
-        return buf.getvalue()
-    except Exception:
-        return None
+def add_margin_to_image(pil_img, margin_mm=10):
+    """A4用紙に合わせた余白付き画像を生成"""
+    from PIL import Image as PILImg
+    # A4 at 150dpi: 1240x1754px, 10mm margin = ~59px
+    A4_W, A4_H = 1240, 1754
+    margin_px = int(margin_mm / 25.4 * 150)
+    avail_w = A4_W - 2*margin_px
+    avail_h = A4_H - 2*margin_px
+    iw, ih = pil_img.size
+    scale = min(avail_w/iw, avail_h/ih)
+    nw, nh = int(iw*scale), int(ih*scale)
+    canvas = PILImg.new("RGB", (A4_W, A4_H), (255,255,255))
+    x = (A4_W - nw)//2; y = (A4_H - nh)//2
+    canvas.paste(pil_img.resize((nw,nh), PILImg.LANCZOS), (x,y))
+    return canvas
+
+def make_print_html(pil_img):
+    """ブラウザ印刷用HTMLを生成（余白付きA4）"""
+    import base64
+    margined = add_margin_to_image(pil_img)
+    buf = io.BytesIO()
+    margined.save(buf, format="JPEG", quality=95)
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  @page {{ size: A4; margin: 0; }}
+  body {{ margin: 0; padding: 0; }}
+  img {{ width: 100%; height: auto; display: block; }}
+  @media print {{ body {{ margin: 0; }} }}
+</style>
+</head><body>
+<img src="data:image/jpeg;base64,{b64}">
+<script>window.onload=function(){{window.print();}};</script>
+</body></html>"""
+    return html
+
 
 def safe_triage_fname(data, case_no):
     """患者名を含まない安全なファイル名を生成"""
@@ -683,22 +699,6 @@ if records:
             )
         except Exception as e:
             st.error(f"PDF生成エラー: {e}")
-    if st.session_state.get("bulk_images"):
-        st.divider()
-        st.markdown("**📧 Gmailで送信**")
-        import urllib.parse as _up
-        _subject = f"トリアージ台帳 {len(st.session_state.bulk_images)}件"
-        _body = "トリアージ台帳を添付します。\n\n"
-        for fname, _ in st.session_state.bulk_images:
-            _body += f"・{fname}\n"
-        _body += "\n※PDFをダウンロードして添付してください。"
-        # mailto: スキームはAndroidでGmailアプリを直接起動する
-        _mailto = "mailto:?subject=" + _up.quote(_subject) + "&body=" + _up.quote(_body)
-        st.markdown(
-            f'<a href="{_mailto}" style="display:block;text-align:center;background:#1a73e8;color:white;padding:12px;border-radius:6px;text-decoration:none;font-size:15px">📧 Gmailで送信（宛名未設定）</a>',
-            unsafe_allow_html=True
-        )
-        st.caption("※ AndroidではGmailアプリが起動します。PDFをダウンロード後に添付して送信してください。")
 
     st.divider()
     # 一括削除ボタン（確認あり）
@@ -876,11 +876,11 @@ if editing_key and editing_key in records:
                                    safe_triage_fname(data, case_no), "image/jpeg",
                                    use_container_width=True, key="ed_save_btn")
             with _pb2:
-                _pdf = make_print_pdf(result)
-                if _pdf:
-                    st.download_button("🖨️ 印刷用PDF", _pdf,
-                                       safe_triage_fname(data, case_no).replace(".jpg",".pdf"),
-                                       "application/pdf", use_container_width=True, key="ed_print_btn")
+                _phtml = make_print_html(result)
+                if _phtml:
+                    st.download_button("🖨️ 印刷", _phtml.encode(),
+                                       safe_triage_fname(data, case_no).replace(".jpg",".html"),
+                                       "text/html", use_container_width=True, key="ed_print_btn")
     with col_cancel:
         if st.button("キャンセル", use_container_width=True):
             st.session_state.editing_key = None
@@ -1064,17 +1064,18 @@ if st.session_state.manual_mode:
                                        safe_triage_fname(data, case_no), "image/jpeg",
                                        use_container_width=True, key="m_dl")
                 with _mp2:
-                    _mpdf = make_print_pdf(result)
-                    if _mpdf:
-                        st.download_button("🖨️ 印刷用PDF", _mpdf,
-                                           safe_triage_fname(data, case_no).replace(".jpg",".pdf"),
-                                           "application/pdf", use_container_width=True, key="m_print")
+                    _mphtml = make_print_html(result)
+                    if _mphtml:
+                        st.download_button("🖨️ 印刷", _mphtml.encode(),
+                                           safe_triage_fname(data, case_no).replace(".jpg",".html"),
+                                           "text/html", use_container_width=True, key="m_print")
 
 # ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
-    st.caption("📋 **PC利用時**: クリップボードから貼り付け / 📱 **スマホ**: 下のボタンからカメラ撮影")
 
     _qc1, _qc2 = st.columns(2)
+    # 200MB per file表示を非表示
+    st.markdown('<style>[data-testid="stFileUploaderDropzoneInstructions"]{display:none}</style>', unsafe_allow_html=True)
     with _qc1:
         try:
             from streamlit_paste_button import paste_image_button as pbutton
@@ -1219,8 +1220,8 @@ if st.session_state.input_mode == "qr":
                                            safe_triage_fname(data, case_no), "image/jpeg",
                                            use_container_width=True, key="qr_save_btn")
                     with _qp2:
-                        _qpdf = make_print_pdf(result)
-                        if _qpdf:
-                            st.download_button("🖨️ 印刷用PDF", _qpdf,
-                                               safe_triage_fname(data, case_no).replace(".jpg",".pdf"),
-                                               "application/pdf", use_container_width=True, key="qr_print_btn")
+                        _qphtml = make_print_html(result)
+                        if _qphtml:
+                            st.download_button("🖨️ 印刷", _qphtml.encode(),
+                                               safe_triage_fname(data, case_no).replace(".jpg",".html"),
+                                               "text/html", use_container_width=True, key="qr_print_btn")
