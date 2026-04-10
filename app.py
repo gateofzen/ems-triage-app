@@ -989,6 +989,7 @@ if st.session_state.input_mode == "qr":
                     components.html(make_print_widget(result, "qr_print"), height=38)
 
 # ===== 編集モード =====
+records = st.session_state.triage_records  # 編集モードで必要
 editing_key = st.session_state.editing_key
 if editing_key and editing_key in records:
     rec = records[editing_key]
