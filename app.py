@@ -291,7 +291,7 @@ def make_print_widget(pil_img, key="print"):
   body {{ margin:0; padding:0; background:transparent; font-family:sans-serif; }}
   @media screen {{
     .img-wrap {{ display:none; }}
-    .print-btn {{
+      .print-btn {{
       display:block; width:100%; padding:6px 14px; box-sizing:border-box;
       background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.4);
       border-radius:4px; font-size:14px; cursor:pointer;
@@ -1098,33 +1098,44 @@ if st.session_state.input_mode == "qr":
         except ImportError:
             st.info("ペースト機能不可")
     with _qc2:
-        # ファイルアップローダーをボタン風に（全要素非表示→Browse filesのみ表示）
-        st.markdown("""<style>
-        div[data-testid="stFileUploader"] > label { display:none !important; }
-        div[data-testid="stFileUploader"] section {
-            border:none !important; padding:0 !important; background:transparent !important;
+        # アップロードボタンをcomponents.htmlで作成してペーストボタンと同じ見た目に
+        upload_html = """<style>
+        body{margin:0;padding:0}
+        label.up-btn{
+          display:block;width:100%;padding:7px 14px;box-sizing:border-box;
+          background:#1a73e8;color:white;border:none;border-radius:4px;
+          font-size:14px;cursor:pointer;text-align:center;font-family:sans-serif;
         }
-        div[data-testid="stFileUploader"] section > div:nth-child(2) { display:none !important; }
-        div[data-testid="stFileUploaderDropzone"] {
-            padding:0 !important; border:none !important; border-radius:4px !important;
-            min-height:0 !important; background:#1a73e8 !important;
-        }
-        div[data-testid="stFileUploaderDropzone"]:hover { background:#1558b0 !important; }
-        div[data-testid="stFileUploaderDropzoneInstructions"] { display:none !important; }
-        div[data-testid="stFileUploaderDropzone"] > button {
-            width:100% !important; background:transparent !important; color:white !important;
-            border:none !important; padding:7px 14px !important; font-size:14px !important;
-            cursor:pointer !important;
-        }
-        div[data-testid="stFileUploaderDropzone"] > button > span { color:white !important; }
-        div[data-testid="stFileUploaderDropzone"] > button svg { fill:white !important; }
-        </style>""", unsafe_allow_html=True)
-        uploaded = st.file_uploader(
-            "画像をアップロード",
-            type=["png", "jpg", "jpeg"],
-            label_visibility="collapsed",
-            key=f"uploader_{st.session_state.uploader_key}"
-        )
+        label.up-btn:hover{background:#1558b0}
+        input[type=file]{display:none}
+        </style>
+        <label class="up-btn" for="upfile">📁 画像をアップロード</label>
+        <input type="file" id="upfile" accept="image/png,image/jpeg"
+          onchange="
+            var f=this.files[0];
+            if(!f)return;
+            var r=new FileReader();
+            r.onload=function(e){
+              window.parent.postMessage({
+                type:'streamlit:setComponentValue',
+                value:e.target.result
+              },'*');
+            };
+            r.readAsDataURL(f);
+          ">
+        """
+        upload_result = components.html(upload_html, height=42)
+        # ペーストされた画像データを処理
+        if upload_result and isinstance(upload_result, str) and upload_result.startswith("data:image"):
+            import base64 as _b64
+            _hdr, _dat = upload_result.split(",",1)
+            _ibytes = _b64.b64decode(_dat)
+            if _ibytes != st.session_state.get("uploaded_bytes"):
+                st.session_state.uploaded_bytes = _ibytes
+                st.session_state.triage_raw = None
+                st.rerun()
+        # 通常のfile_uploaderも非表示で維持（フォールバック用）
+        uploaded = None
 
     # アップロードされたファイルのバイトをセッションに保持
     if uploaded is not None:
