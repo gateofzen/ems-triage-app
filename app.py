@@ -21,7 +21,7 @@ div[data-testid="stDownloadButton"] > button {
     height: 38px !important; padding: 0 14px !important;
     width: 100% !important;
 }
-/* ペーストボタンiframe - 複数セレクタで対応 */
+/* ペーストボタンiframe - 高さ統一 */
 iframe[title="streamlit_paste_button.paste_image_button"],
 div[data-testid="stCustomComponentV1"] > iframe {
     height: 38px !important; min-height: 38px !important;
@@ -1100,8 +1100,8 @@ if st.session_state.input_mode == "qr":
             paste_result = pbutton(
                 label="📋 クリップボードから貼り付け",
                 key="paste_btn",
-                background_color="#1a73e8",
-                hover_background_color="#1558b0",
+                background_color="#262730",
+                hover_background_color="#3d3f4a",
                 text_color="#ffffff",
             )
             if paste_result.image_data is not None:
@@ -1115,15 +1115,19 @@ if st.session_state.input_mode == "qr":
         except ImportError:
             st.info("ペースト機能不可")
     with _qc2:
-        # アップロードボタンをcomponents.htmlで作成してペーストボタンと同じ見た目に
+        # アップロードボタン - Streamlit secondaryボタンと統一
         upload_html = """<style>
         body{margin:0;padding:0}
         label.up-btn{
-          display:block;width:100%;padding:7px 14px;box-sizing:border-box;
-          background:#1a73e8;color:white;border:none;border-radius:4px;
-          font-size:14px;cursor:pointer;text-align:center;font-family:sans-serif;
+          display:block;width:100%;height:38px;line-height:38px;
+          padding:0 14px;box-sizing:border-box;
+          background:#262730;color:white;
+          border:1px solid rgba(250,250,250,0.2);
+          border-radius:4px;font-size:0.875rem;cursor:pointer;
+          text-align:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
         }
-        label.up-btn:hover{background:#1558b0}
+        label.up-btn:hover{background:#3d3f4a;border-color:rgba(250,250,250,0.4)}
         input[type=file]{display:none}
         </style>
         <label class="up-btn" for="upfile">📁 画像をアップロード</label>
