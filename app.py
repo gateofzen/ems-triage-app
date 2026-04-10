@@ -308,12 +308,16 @@ def make_print_widget(pil_img, key="print"):
     .img-wrap {{ display:none; }}
     .print-btn {{
       display:block; width:100%; height:38px; padding:0 14px; box-sizing:border-box;
-      background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.4);
+      background:transparent; color:inherit;
+      border:1px solid rgba(49,51,63,0.2);
       border-radius:4px; font-size:0.875rem; font-weight:400;
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
       cursor:pointer; letter-spacing:normal; line-height:1;
     }}
     .print-btn:hover {{ border-color:#f63366; color:#f63366; }}
+    @media (prefers-color-scheme: dark) {{
+      .print-btn {{ border-color:rgba(250,250,250,0.2); color:#fff; }}
+    }}
   }}
   @media print {{
     .print-btn {{ display:none; }}
@@ -680,11 +684,6 @@ if records:
                 except: _dt = ""
                 filename = f"triage_{case_no:02d}_{_dt}_{_age}{_sex}.jpg"
                 all_images.append((filename, img_bytes))
-                st.download_button(
-                    f"📥 {case_no}.{display} を保存",
-                    img_bytes, filename, "image/jpeg",
-                    key=f"bulk_dl_{case_no}"
-                )
             # セッションに保存（Gmail送信用）
             st.session_state.bulk_images = all_images
             st.success(f"✅ {len(all_images)}件の台帳を生成しました。")
@@ -898,13 +897,7 @@ if editing_key and editing_key in records:
             st.image(result, use_container_width=True)
             buf = io.BytesIO()
             result.save(buf, format="JPEG", quality=95)
-            _pb1, _pb2 = st.columns(2)
-            with _pb1:
-                st.download_button("📥 台帳を保存", buf.getvalue(),
-                                   safe_triage_fname(data, case_no), "image/jpeg",
-                                   use_container_width=True, key="ed_save_btn")
-            with _pb2:
-                components.html(make_print_widget(result, "ed_print"), height=38)
+            components.html(make_print_widget(result, "ed_print"), height=38)
     with col_cancel:
         if st.button("キャンセル", use_container_width=True):
             st.session_state.editing_key = None
@@ -1082,13 +1075,7 @@ if st.session_state.manual_mode:
                 st.image(result, use_container_width=True)
                 buf = io.BytesIO()
                 result.save(buf, format="JPEG", quality=95)
-                _mp1, _mp2 = st.columns(2)
-                with _mp1:
-                    st.download_button("📥 台帳を保存", buf.getvalue(),
-                                       safe_triage_fname(data, case_no), "image/jpeg",
-                                       use_container_width=True, key="m_dl")
-                with _mp2:
-                    components.html(make_print_widget(result, "m_print"), height=38)
+                components.html(make_print_widget(result, "m_print"), height=38)
 
 # ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
@@ -1268,10 +1255,4 @@ if st.session_state.input_mode == "qr":
                     st.image(result, use_container_width=True)
                     buf = io.BytesIO()
                     result.save(buf, format="JPEG", quality=95)
-                    _qp1, _qp2 = st.columns(2)
-                    with _qp1:
-                        st.download_button("📥 台帳を保存", buf.getvalue(),
-                                           safe_triage_fname(data, case_no), "image/jpeg",
-                                           use_container_width=True, key="qr_save_btn")
-                    with _qp2:
-                        components.html(make_print_widget(result, "qr_print"), height=38)
+                    components.html(make_print_widget(result, "qr_print"), height=38)
