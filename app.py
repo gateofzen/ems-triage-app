@@ -362,7 +362,8 @@ def make_print_widget(pil_img, key="print"):
     .print-btn {{ display:none; }}
     .img-wrap {{ display:block; }}
     @page {{ size:A4; margin:0; }}
-    img {{ width:100%; height:auto; }}
+    html, body {{ height:100%; overflow:hidden; margin:0; padding:0; }}
+    img {{ width:100%; height:auto; max-height:100vh; display:block; }}
   }}
 </style>
 </head><body>
