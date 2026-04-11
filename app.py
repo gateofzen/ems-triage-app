@@ -853,48 +853,34 @@ if st.session_state.input_mode == "qr":
         except ImportError:
             st.info("ペースト機能不可")
     with _qc2:
-        # アップロードボタン - Streamlit secondaryボタンと統一
-        upload_html = """<style>
-        body{margin:0;padding:0}
-        label.up-btn{
-          display:block;width:100%;height:38px;line-height:38px;
-          padding:0 14px;box-sizing:border-box;
-          background:#262730;color:white;
-          border:1px solid rgba(250,250,250,0.2);
-          border-radius:4px;font-size:0.875rem;cursor:pointer;
-          text-align:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+        # st.file_uploaderをボタン風にCSSでスタイリング（カメラ対応・データ取得可）
+        st.markdown("""<style>
+        /* ファイルアップローダーをボタン風に */
+        div[data-testid="stFileUploader"] > label {display:none}
+        div[data-testid="stFileUploader"] section {
+            border:none !important; padding:0 !important; background:transparent !important;
         }
-        label.up-btn:hover{background:#3d3f4a;border-color:rgba(250,250,250,0.4)}
-        input[type=file]{display:none}
-        </style>
-        <label class="up-btn" for="upfile">📁 画像をアップロード</label>
-        <input type="file" id="upfile" accept="image/png,image/jpeg"
-          onchange="
-            var f=this.files[0];
-            if(!f)return;
-            var r=new FileReader();
-            r.onload=function(e){
-              window.parent.postMessage({
-                type:'streamlit:setComponentValue',
-                value:e.target.result
-              },'*');
-            };
-            r.readAsDataURL(f);
-          ">
-        """
-        upload_result = components.html(upload_html, height=38)
-        # ペーストされた画像データを処理
-        if upload_result and isinstance(upload_result, str) and upload_result.startswith("data:image"):
-            import base64 as _b64
-            _hdr, _dat = upload_result.split(",",1)
-            _ibytes = _b64.b64decode(_dat)
-            if _ibytes != st.session_state.get("uploaded_bytes"):
-                st.session_state.uploaded_bytes = _ibytes
-                st.session_state.triage_raw = None
-                st.rerun()
-        # 通常のfile_uploaderも非表示で維持（フォールバック用）
-        uploaded = None
+        div[data-testid="stFileUploaderDropzone"] {
+            padding:0 !important; border-radius:4px !important; min-height:0 !important;
+            border:1px solid rgba(250,250,250,0.2) !important; background:#262730 !important;
+        }
+        div[data-testid="stFileUploaderDropzone"]:hover {background:#3d3f4a !important;}
+        div[data-testid="stFileUploaderDropzoneInstructions"] {display:none !important;}
+        div[data-testid="stFileUploaderDropzone"] > button {
+            width:100% !important; height:38px !important; background:transparent !important;
+            color:white !important; border:none !important;
+            font-size:0.875rem !important; cursor:pointer !important;
+        }
+        div[data-testid="stFileUploaderDropzone"] > button > span {color:white !important;}
+        div[data-testid="stFileUploaderDropzone"] > button svg {fill:white !important;}
+        div[data-testid="stFileUploader"] section > div:last-child {display:none !important;}
+        </style>""", unsafe_allow_html=True)
+        uploaded = st.file_uploader(
+            "📁 画像をアップロード",
+            type=["png","jpg","jpeg"],
+            label_visibility="collapsed",
+            key=f"uploader_{st.session_state.uploader_key}"
+        )
 
     # アップロードされたファイルのバイトをセッションに保持
     if uploaded is not None:
@@ -1212,8 +1198,7 @@ if records:
     for key, rec in sorted_records:
         rec_res = rec.get("res", {})
         if rec_res.get("decision") == "不応需":
-            reason = rec_res.get("reason","")
-            outcome_str = f"不応需（{reason}）" if reason else "不応需"
+            outcome_str = "不応需"
         else:
             outcome_str = rec_res.get("out", "未記入")
         dt_str = rec.get("data", {}).get("dt_str", "")
