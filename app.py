@@ -43,9 +43,11 @@ st.markdown("""
 def _extract_time(dt_str):
     """dt_strから時刻(h, m)を抽出。'4/8（水）17:40' と '2026/04/11 9:33:20' 両対応"""
     import re
-    m = re.search(r'(\d{1,2}):(\d{2})(?::\d{2})?$', dt_str.strip())
-    if m:
-        return int(m.group(1)), int(m.group(2))
+    # 末尾から最後のHH:MM(:SS)を探す
+    matches = re.findall(r'(\d{1,2}):(\d{2})(?::\d{2})?', dt_str.strip())
+    if matches:
+        h, m = int(matches[-1][0]), int(matches[-1][1])
+        return h, m
     raise ValueError(f"No time found in: {dt_str}")
 
 def detect_shift(dt_str):
