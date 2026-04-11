@@ -1203,7 +1203,12 @@ if records:
     # case_noでソート
     sorted_records = sorted(records.items(), key=lambda x: int(x[1].get("case_no", 99)))
     for key, rec in sorted_records:
-        outcome_str = rec.get("res", {}).get("out", "未記入")
+        rec_res = rec.get("res", {})
+        if rec_res.get("decision") == "不応需":
+            reason = rec_res.get("reason","")
+            outcome_str = f"不応需（{reason}）" if reason else "不応需"
+        else:
+            outcome_str = rec_res.get("out", "未記入")
         dt_str = rec.get("data", {}).get("dt_str", "")
         case_no_disp = rec.get("case_no", "?")
         kana = rec.get("data", {}).get("kana", "").replace("　","").replace(" ","")
