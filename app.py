@@ -1079,6 +1079,9 @@ if editing_key and editing_key in records:
     with eo5: st.markdown(f"<div style='font-size:13px;padding-top:28px'>{data.get('spo2_before','')}→{data.get('spo2','')}</div>", unsafe_allow_html=True)
 
     shift = rec.get("shift","日勤")
+    shift = st.radio("勤務帯", ["日勤","夜勤"],
+                     index=0 if shift=="日勤" else 1,
+                     horizontal=True, key="ed_shift")
     st.info(f"🕐 受付時刻: {data['dt_str']}　勤務帯: **{shift}**")
     free_note = st.text_area("自由記載", value=rec.get("free_note",""), height=80, key="ed_free")
 
@@ -1143,6 +1146,7 @@ if editing_key and editing_key in records:
             records[editing_key]["origin"] = e_origin
             records[editing_key]["history_yn"] = e_history_yn
             records[editing_key]["history_dept"] = e_history_dept
+            records[editing_key]["shift"] = shift
             save_records(st.session_state.triage_records)
             st.session_state.editing_key = None
             st.success("保存しました")
@@ -1164,6 +1168,7 @@ if editing_key and editing_key in records:
             records[editing_key]["origin"] = e_origin
             records[editing_key]["history_yn"] = e_history_yn
             records[editing_key]["history_dept"] = e_history_dept
+            records[editing_key]["shift"] = shift
             save_records(st.session_state.triage_records)
             result = render_triage(data, e_recorder, e_origin, shift, e_history_yn, e_history_dept,
                                    decision, res, case_no, free_note)
