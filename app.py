@@ -692,6 +692,9 @@ if st.session_state.manual_mode:
         _tmp_dt = f"{_jst_now.month}/{_jst_now.day}（）{_jst_now.hour:02d}:{_jst_now.minute:02d}"
         _next = auto_case_no(st.session_state.triage_records, _tmp_dt)
         m_case_no = st.selectbox("No.", list(range(1,16)), index=_next-1, key="m_case_no_inp")
+        recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
+        rec_idx = recorders.index(st.session_state.get("last_recorder","前川")) if st.session_state.get("last_recorder") in recorders else 0
+        m_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="m_recorder")
         m_kanji = st.text_input("患者氏名（漢字）", placeholder="山田 太郎")
         m_kana  = st.text_input("患者氏名（カナ）", placeholder="ヤマダ タロウ")
         m_age   = st.number_input("年齢（才）", min_value=0, max_value=120, value=0, step=1)
@@ -726,9 +729,6 @@ if st.session_state.manual_mode:
             m_team = st.text_input("救急隊名を入力", key="m_team_other", placeholder="例: 石狩")
         else:
             m_team = m_team_sel
-        recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
-        rec_idx = recorders.index(st.session_state.get("last_recorder","前川")) if st.session_state.get("last_recorder") in recorders else 0
-        m_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="m_recorder")
     with mc_b:
         m_history_yn = st.radio("受診歴", ["無","有"], horizontal=True, key="m_hist_yn")
         m_history_dept = ""
