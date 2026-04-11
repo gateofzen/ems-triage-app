@@ -40,11 +40,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ===== 日勤・夜勤の自動判定 =====
+def _extract_time(dt_str):
+    """dt_strから時刻(h, m)を抽出。'4/8（水）17:40' と '2026/04/11 9:33:20' 両対応"""
+    import re
+    m = re.search(r'(\d{1,2}):(\d{2})(?::\d{2})?$', dt_str.strip())
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    raise ValueError(f"No time found in: {dt_str}")
+
 def detect_shift(dt_str):
     """8:30-16:30 = 日勤、それ以外 = 夜勤"""
     try:
-        time_part = dt_str.split("）")[-1].strip()
-        h, m = map(int, time_part.split(":"))
+        h, m = _extract_time(dt_str)
         minutes = h * 60 + m
         if 8 * 60 + 30 <= minutes < 16 * 60 + 30:
             return "日勤"
@@ -56,17 +63,26 @@ def get_shift_identity(dt_str):
     """(shift_date_str, shift_type) を返す
     夜勤で00:00-08:30の場合はshift_dateを前日にする"""
     try:
-        date_part = dt_str.split("（")[0].strip()   # "4/10"
-        time_part = dt_str.split("）")[-1].strip()  # "02:00"
-        h, m = map(int, time_part.split(":"))
+        import re
+        # 日付抽出: "4/10" or "2026/04/10"
+        dm = re.search(r'(\d{1,4})[/／](\d{1,2})[/／]?(\d{0,2})', dt_str)
+        h, m = _extract_time(dt_str)
         minutes = h * 60 + m
-        mo, d = map(int, date_part.split("/"))
+        if dm:
+            g1, g2, g3 = dm.group(1), dm.group(2), dm.group(3)
+            if len(g1) == 4:  # YYYY/MM/DD
+                mo, d = int(g2), int(g3) if g3 else 1
+            else:  # M/D
+                mo, d = int(g1), int(g2)
+        else:
+            from datetime import date as _d
+            today = _d.today()
+            mo, d = today.month, today.day
         if 8 * 60 + 30 <= minutes < 16 * 60 + 30:
             shift_type = "日勤"
             shift_date = f"{mo}/{d}"
         else:
             shift_type = "夜勤"
-            # 00:00-08:30 は前日の夜勤
             if minutes < 8 * 60 + 30:
                 from datetime import date as _d, timedelta
                 year = _d.today().year
@@ -1088,6 +1104,22 @@ if editing_key and editing_key in records:
             res["main"] = st.selectbox("主科", main_opts, index=main_opts.index(cur_main), key="ed_main")
             if res["main"] == "その他":
                 res["main_other"] = st.text_input("主科名", value=res.get("main_other",""), key="ed_main_other")
+    else:  # 不応需
+        reason_opts = [
+            "1. 緊急性なし", "2. ベッド満床", "3. 既定の応需不可",
+            "4. 対応可能な医師不在", "5. 緊急手術制限中",
+            "6-A. 医師処置中", "6-B. 看護師処置中", "7. その他",
+        ]
+        cur_reason = res.get("reason","") if res.get("reason") in reason_opts else reason_opts[0]
+        res["reason"] = st.selectbox("不応需理由", reason_opts,
+                                     index=reason_opts.index(cur_reason), key="ed_reason")
+        if res["reason"].startswith("2."):
+            bed_opts = ["救急外来","HCU","4東","その他"]
+            cur_bed = res.get("bed_sub","") if res.get("bed_sub") in bed_opts else bed_opts[0]
+            res["bed_sub"] = st.radio("ベッド満床の場所", bed_opts,
+                                      index=bed_opts.index(cur_bed), horizontal=True, key="ed_bed_sub")
+        if any(res["reason"].startswith(p) for p in ["3.","4.","5.","6-A.","6-B."]):
+            res["reason_comment"] = st.text_input("コメント", value=res.get("reason_comment",""), key="ed_reason_comment")
 
     # ボタン
     col_save, col_gen, col_cancel = st.columns(3)
