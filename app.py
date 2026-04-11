@@ -695,10 +695,11 @@ if st.session_state.manual_mode:
     with mc7: m_spo2  = st.text_input("SpO2", placeholder="98")
     m_bt = st.text_input("体温（BT）", placeholder="36.5")
     # 救急隊名
-    RESCUE_TEAMS_M = ["","中央","大通","桑園","山鼻","北","篠路","新光","東","栄","東苗穂",
-        "白石","菊水","厚別","厚別西","豊平","西岡","平岸","清田","南","定山渓",
-        "西","前田","西野","手稲","石山","あいの里","北野","警防","豊水","幌西",
-        "藤野","八軒","北郷","札苗","苗穂","北エルム","東モエレ","その他（直接入力）"]
+    RESCUE_TEAMS_M = ["","警防","中央","大通","山鼻","豊水","幌西","北","北エルム","あいの里",
+    "篠路","新光","東","東モエレ","栄","札苗","苗穂","白石","南郷","菊水",
+    "北郷","厚別","厚別西","豊平","月寒","平岸","西岡","清田","北野","南",
+    "藤野","定山渓","西","発寒","八軒","西野","手稲","前田"
+]
     m_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_M, key="m_team_sel")
     if m_team_sel == "その他（直接入力）":
         m_team = st.text_input("救急隊名を入力", key="m_team_other", placeholder="例: 石狩")
@@ -1020,10 +1021,11 @@ if editing_key and editing_key in records:
         recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
         rec_idx = recorders.index(rec.get("recorder","前川")) if rec.get("recorder") in recorders else 0
         e_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="ed_recorder")
-        RESCUE_TEAMS_E = ["","中央","大通","桑園","山鼻","北","篠路","新光","東","栄","東苗穂",
-            "白石","菊水","厚別","厚別西","豊平","西岡","平岸","清田","南","定山渓",
-            "西","前田","西野","手稲","石山","あいの里","北野","警防","豊水","幌西",
-            "藤野","八軒","北郷","札苗","苗穂","北エルム","東モエレ","その他（直接入力）"]
+        RESCUE_TEAMS_E = ["","警防","中央","大通","山鼻","豊水","幌西","北","北エルム","あいの里",
+    "篠路","新光","東","東モエレ","栄","札苗","苗穂","白石","南郷","菊水",
+    "北郷","厚別","厚別西","豊平","月寒","平岸","西岡","清田","北野","南",
+    "藤野","定山渓","西","発寒","八軒","西野","手稲","前田"
+]
         _orig = rec.get("origin","")
         _eidx = RESCUE_TEAMS_E.index(_orig) if _orig in RESCUE_TEAMS_E else len(RESCUE_TEAMS_E)-1
         e_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_E, index=_eidx, key="ed_team")
