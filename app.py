@@ -557,29 +557,27 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
         # 最終転帰
         if res.get("out") == "入院":
             draw_maru(d, (400, 1435), r=16)
+            # 病棟
+            ward_map = {"4東": (784, 1466), "HCU": (861, 1466), "ICU": (943, 1466)}
+            if res.get("ward") in ward_map:
+                draw_maru(d, ward_map[res["ward"]], r=18)
+            elif res.get("ward") == "6東":
+                draw_maru(d, (784, 1490), r=18)
+                d.text((806, 1480), "6東", font=f18, fill="black")
+            elif res.get("ward") == "その他":
+                draw_maru(d, (784, 1490), r=18)
+                if res.get("ward_other"):
+                    d.text((806, 1480), res["ward_other"], font=f18, fill="black")
+            # 主科
+            main_map = {"臨研": (1083, 1445), "救急科": (1095, 1480)}
+            if res.get("main") in main_map:
+                draw_maru(d, main_map[res["main"]], r=18)
+            elif res.get("main") == "その他":
+                draw_maru(d, (1083, 1510), r=18)
+                if res.get("main_other"):
+                    d.text((1100, 1500), res["main_other"].rstrip("科"), font=f18, fill="black")
         elif res.get("out") == "帰宅":
-            draw_maru(d, (340, 1461), r=16)
-
-        # 病棟
-        ward_map = {"4東": (784, 1466), "HCU": (861, 1466), "ICU": (943, 1466)}
-        if res.get("ward") in ward_map:
-            draw_maru(d, ward_map[res["ward"]], r=18)
-        elif res.get("ward") == "6東":
-            draw_maru(d, (784, 1490), r=18)
-            d.text((806, 1480), "6東", font=f18, fill="black")
-        elif res.get("ward") == "その他":
-            draw_maru(d, (784, 1490), r=18)
-            if res.get("ward_other"):
-                d.text((806, 1480), res["ward_other"], font=f18, fill="black")
-
-        # 主科
-        main_map = {"臨研": (1083, 1445), "救急科": (1095, 1480)}
-        if res.get("main") in main_map:
-            draw_maru(d, main_map[res["main"]], r=18)
-        elif res.get("main") == "その他":
-            draw_maru(d, (1083, 1510), r=18)
-            if res.get("main_other"):
-                d.text((1100, 1500), res["main_other"].rstrip("科"), font=f18, fill="black")
+            draw_maru(d, (395, 1461), r=16)
     else:
         # 不応需理由
         # テンプレート画像解析済みY座標（各行テキスト中央）
