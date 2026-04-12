@@ -10,6 +10,7 @@ import os
 import json
 import urllib.parse
 from datetime import datetime
+from leader_schedule import get_leader, schedule_editor_widget, STAFF_LIST as SCHEDULE_STAFF
 
 st.set_page_config(page_title="トリアージ台帳自動作成", layout="centered")
 st.title("🚑 トリアージ台帳自動作成")
@@ -109,6 +110,37 @@ def auto_case_no(records, dt_str):
         if rd == target_date and rs == target_shift:
             count += 1
     return min(count + 1, 15)
+
+def get_default_recorder(dt_str=None):
+    """現在または指定日時のシフトリーダー名を返す。未設定なら last_recorder かデフォルト"""
+    from datetime import date as _date, timezone, timedelta
+    recorders = ["前川","中嶋","森木","小舘","遠藤","提嶋"]
+    try:
+        if dt_str:
+            shift = detect_shift(dt_str)
+            # dt_strから日付を取得
+            import re
+            dm = re.search(r'(\d{1,4})[/／](\d{1,2})[/／]?(\d{0,2})', dt_str)
+            if dm:
+                g1, g2, g3 = dm.group(1), dm.group(2), dm.group(3)
+                if len(g1) == 4:
+                    d = _date(int(g1), int(g2), int(g3) if g3 else 1)
+                else:
+                    d = _date(_date.today().year, int(g1), int(g2))
+            else:
+                d = _date.today()
+        else:
+            jst = timezone(timedelta(hours=9))
+            now = __import__('datetime').datetime.now(jst)
+            d = now.date()
+            tmp = f"{d.month}/{d.day}（）{now.hour:02d}:{now.minute:02d}"
+            shift = detect_shift(tmp)
+        leader = get_leader(d, shift)
+        if leader and leader in recorders:
+            return leader
+    except Exception:
+        pass
+    return st.session_state.get("last_recorder", "前川")
 
 # ===== ファイル永続化 =====
 RECORDS_FILE = "triage_records.json"
@@ -691,7 +723,8 @@ if st.session_state.manual_mode:
         _next = auto_case_no(st.session_state.triage_records, _tmp_dt)
         m_case_no = st.selectbox("No.", list(range(1,16)), index=_next-1, key="m_case_no_inp")
         recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
-        rec_idx = recorders.index(st.session_state.get("last_recorder","前川")) if st.session_state.get("last_recorder") in recorders else 0
+        _def_rec = get_default_recorder()
+        rec_idx = recorders.index(_def_rec) if _def_rec in recorders else 0
         m_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="m_recorder")
         m_kanji = st.text_input("患者氏名（漢字）", placeholder="山田 太郎")
         m_kana  = st.text_input("患者氏名（カナ）", placeholder="ヤマダ タロウ")
@@ -901,10 +934,9 @@ if st.session_state.input_mode == "qr":
             with col1:
                 next_no = auto_case_no(st.session_state.triage_records, data["dt_str"])
                 case_no = st.selectbox("No.", list(range(1, 16)), index=next_no-1)
-                if "last_recorder" not in st.session_state:
-                    st.session_state.last_recorder = "前川"
                 recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
-                rec_idx = recorders.index(st.session_state.last_recorder) if st.session_state.last_recorder in recorders else 0
+                _def_rec_qr = get_default_recorder(data["dt_str"])
+                rec_idx = recorders.index(_def_rec_qr) if _def_rec_qr in recorders else 0
                 recorder = st.selectbox("記載者", recorders, index=rec_idx)
                 origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
                 history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
@@ -1306,3 +1338,35 @@ if records:
                 st.rerun()
 
     st.divider()
+
+# ===== 勤務表リーダー設定 =====
+with st.expander("📅 勤務表リーダー設定", expanded=False):
+    from datetime import timezone as _stz, timedelta as _std
+    from leader_schedule import parse_kinmuhyo_pdf as parse_schedule_pdf, save_schedule, load_schedule
+    _jst_now2 = __import__('datetime').datetime.now(_stz(_std(hours=9)))
+    _today2 = _jst_now2.date()
+    _shift_now2 = detect_shift(f"{_today2.month}/{_today2.day}（）{_jst_now2.hour:02d}:{_jst_now2.minute:02d}")
+    _leader_now2 = get_leader(_today2, _shift_now2)
+    if _leader_now2:
+        st.info(f"👤 本日 {_today2.month}/{_today2.day} {_shift_now2}のリーダー: **{_leader_now2}**")
+    else:
+        st.warning(f"⚠️ 本日 {_today2.month}/{_today2.day} {_shift_now2}のリーダーが未設定です")
+    # PDFアップロード
+    pdf_file = st.file_uploader("📄 勤務表PDFをアップロード（毎月20日頃に更新）",
+                                 type=["pdf"], key="sched_pdf_upload",
+                                 label_visibility="collapsed")
+    if pdf_file:
+        with st.spinner("勤務表を解析中..."):
+            result = parse_schedule_pdf(pdf_file.read())
+        if result:
+            sched = load_schedule()
+            months = set(k[0] for k in result.keys())
+            sched = {k:v for k,v in sched.items() if k[0] not in months}
+            sched.update(result)
+            save_schedule(sched)
+            st.success(f"✅ {len(result)}日分を更新しました")
+            st.rerun()
+        else:
+            st.error("⚠️ 解析できませんでした")
+    st.caption("PDFアップロード後に内容を確認・修正できます（日勤=〇*、夜勤=●*）")
+    schedule_editor_widget("triage_sched")
