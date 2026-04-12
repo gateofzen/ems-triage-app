@@ -5,3 +5,4 @@ Pillow
 pyzbar
 reportlab
 streamlit-paste-button
+pdfplumber
