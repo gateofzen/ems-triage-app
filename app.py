@@ -477,8 +477,14 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
     # ===== 受診歴 =====
     if history_yn == "有":
         draw_maru(d, (1100, 165), r=22)
+        f16 = get_font(16)
         dept = history_dept.rstrip("科")
-        d.text((1130, 150), dept, font=f24, fill="black")
+        # 7文字ごとに改行して縦に並べる（X=1130〜1248の範囲）
+        line_h = 18
+        max_chars = 6
+        lines = [dept[i:i+max_chars] for i in range(0, len(dept), max_chars)] if dept else []
+        for li, line in enumerate(lines[:3]):
+            d.text((1130, 143 + li * line_h), line, font=f16, fill="black")
     else:
         draw_maru(d, (1270, 165), r=22)
 
