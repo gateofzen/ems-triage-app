@@ -117,24 +117,18 @@ def get_default_recorder(dt_str=None):
     recorders = ["前川","中嶋","森木","小舘","遠藤","提嶋"]
     try:
         if dt_str:
-            shift = detect_shift(dt_str)
-            # dt_strから日付を取得
-            import re
-            dm = re.search(r'(\d{1,4})[/／](\d{1,2})[/／]?(\d{0,2})', dt_str)
-            if dm:
-                g1, g2, g3 = dm.group(1), dm.group(2), dm.group(3)
-                if len(g1) == 4:
-                    d = _date(int(g1), int(g2), int(g3) if g3 else 1)
-                else:
-                    d = _date(_date.today().year, int(g1), int(g2))
-            else:
-                d = _date.today()
+            # get_shift_identityで夜勤0時またぎも正しく処理
+            shift_date_str, shift = get_shift_identity(dt_str)
+            # shift_date_strは "4/10" 形式
+            mo, dy = map(int, shift_date_str.split("/"))
+            d = _date(_date.today().year, mo, dy)
         else:
             jst = timezone(timedelta(hours=9))
             now = __import__('datetime').datetime.now(jst)
-            d = now.date()
-            tmp = f"{d.month}/{d.day}（）{now.hour:02d}:{now.minute:02d}"
-            shift = detect_shift(tmp)
+            tmp = f"{now.month}/{now.day}（）{now.hour:02d}:{now.minute:02d}"
+            shift_date_str, shift = get_shift_identity(tmp)
+            mo, dy = map(int, shift_date_str.split("/"))
+            d = _date(now.year, mo, dy)
         leader = get_leader(d, shift)
         if leader and leader in recorders:
             return leader
@@ -943,7 +937,7 @@ if st.session_state.input_mode == "qr":
             with col2:
                 history_dept = ""
                 if history_yn == "有":
-                    history_dept = st.text_input("受診科名")
+                    history_dept = st.text_input("受診科名", key="qr_hist_dept")
                 decision = st.radio("判定", ["応需", "不応需"], horizontal=True)
 
             complaint_edit = st.text_input("主訴（編集可）", value=data["complaint"])
