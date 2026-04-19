@@ -484,7 +484,7 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
         max_chars = 6
         lines = [dept[i:i+max_chars] for i in range(0, len(dept), max_chars)] if dept else []
         for li, line in enumerate(lines[:3]):
-            d.text((1090, 143 + li * line_h), line, font=f16, fill="black")
+            d.text((1100, 143 + li * line_h), line, font=f16, fill="black")
     else:
         draw_maru(d, (1270, 165), r=22)
 
