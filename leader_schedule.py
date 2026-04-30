@@ -1,186 +1,246 @@
-import json, os, io, re
-from datetime import date
+"""
+leader_schedule.py — 勤務表アプリ連携版
 
-STAFF_LIST    = ["前川","中嶋","森木","小舘","遠藤","提嶋"]
-SCHEDULE_FILE = "leader_schedule.json"
+このモジュールは、勤務表アプリ (duty-roster-app) が GitHub に保存した
+月次データ (month_YYYY-MM.json) を読み取って、リーダー医師名を返します。
 
-_DEFAULT_SCHEDULE = {
-    (4, 1):{"日勤":"小舘","夜勤":"遠藤"}, (4, 2):{"日勤":"小舘","夜勤":"小舘"},
-    (4, 3):{"日勤":"森木","夜勤":"遠藤"}, (4, 4):{"日勤":"小舘","夜勤":"中嶋"},
-    (4, 5):{"日勤":"遠藤","夜勤":"小舘"}, (4, 6):{"日勤":"遠藤","夜勤":"前川"},
-    (4, 7):{"日勤":"森木","夜勤":"遠藤"}, (4, 8):{"日勤":"小舘","夜勤":"前川"},
-    (4, 9):{"日勤":"小舘","夜勤":"遠藤"}, (4,10):{"日勤":"前川","夜勤":"小舘"},
-    (4,11):{"日勤":"前川","夜勤":"中嶋"}, (4,12):{"日勤":"前川","夜勤":"提嶋"},
-    (4,13):{"日勤":"小舘","夜勤":"遠藤"}, (4,14):{"日勤":"中嶋","夜勤":"森木"},
-    (4,15):{"日勤":"前川","夜勤":"遠藤"}, (4,16):{"日勤":"小舘","夜勤":"前川"},
-    (4,17):{"日勤":"遠藤","夜勤":"小舘"}, (4,18):{"日勤":"森木","夜勤":"遠藤"},
-    (4,19):{"日勤":"提嶋","夜勤":"前川"}, (4,20):{"日勤":"遠藤","夜勤":"中嶋"},
-    (4,21):{"日勤":"小舘","夜勤":"森木"}, (4,22):{"日勤":"小舘","夜勤":"前川"},
-    (4,23):{"日勤":"遠藤","夜勤":"小舘"}, (4,24):{"日勤":"前川","夜勤":"中嶋"},
-    (4,25):{"日勤":"遠藤","夜勤":"小舘"}, (4,26):{"日勤":"前川","夜勤":"提嶋"},
-    (4,27):{"日勤":"森木","夜勤":"中嶋"}, (4,28):{"日勤":"遠藤","夜勤":"小舘"},
-    (4,29):{"日勤":"前川","夜勤":"遠藤"}, (4,30):{"日勤":"小舘","夜勤":"前川"},
-}
+旧版との互換性を保つため、以下の公開シンボルを提供:
+- get_leader(date, shift) -> str
+- schedule_editor_widget(key) -> None  (Streamlit UIウィジェット)
+- STAFF_LIST -> list (救命センター医師名リスト)
+- parse_kinmuhyo_pdf(pdf_bytes) -> dict  (廃止予定、空dictを返す)
+- save_schedule(sched) -> None  (廃止予定、no-op)
+- load_schedule() -> dict  (互換目的で勤務表アプリのデータをこの形式に変換)
 
-def load_schedule():
-    if os.path.exists(SCHEDULE_FILE):
-        try:
-            raw = json.load(open(SCHEDULE_FILE, encoding="utf-8"))
-            return {(int(k.split(",")[0]), int(k.split(",")[1])): v for k, v in raw.items()}
-        except Exception:
-            pass
-    return _DEFAULT_SCHEDULE.copy()
+旧仕様: get_leader(date_obj, shift_str) は date オブジェクトと文字列を受け取る
+新仕様: 同シグネチャを維持し、内部で年月日に分解して GitHub API から取得
+"""
+import base64
+import json
+from datetime import date as _date
+from typing import Optional
 
-def save_schedule(sched):
-    raw = {f"{k[0]},{k[1]}": v for k, v in sched.items()}
-    json.dump(raw, open(SCHEDULE_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+import requests
+import streamlit as st
 
-def get_leader(date_obj, shift):
-    sched = load_schedule()
-    return sched.get((date_obj.month, date_obj.day), {}).get(shift, "")
+# ===== 救命センター医師名リスト (リーダー候補) =====
+STAFF_LIST = [
+    "提嶋", "遠藤", "前川", "小舘", "森木",
+    "中嶋", "福原", "富田", "上島", "原",
+    "笹", "完山",
+]
 
-def parse_kinmuhyo_pdf(pdf_bytes):
-    """勤務表PDFを解析 → {(month, day): {"日勤": name, "夜勤": name}}"""
+
+# ===== 勤務表アプリのデータ取得 =====
+@st.cache_data(ttl=3600)
+def _fetch_month_data(year: int, month: int) -> Optional[dict]:
+    """勤務表アプリの GitHub から month_YYYY-MM.json を取得。"""
+    repo = st.secrets.get("SCHEDULE_REPO", "")
+    token = st.secrets.get("SCHEDULE_TOKEN", "")
+    if not repo or not token:
+        return None
+    
+    url = f"https://api.github.com/repos/{repo}/contents/month_{year:04d}-{month:02d}.json"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github.v3+json",
+    }
     try:
-        import pdfplumber
-    except ImportError:
-        return {}
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        d = r.json()
+        # 1MB以下なら content フィールドに直接 base64 が入っている
+        content_b64 = (d.get("content") or "").replace("\n", "").strip()
+        if content_b64:
+            content = base64.b64decode(content_b64).decode("utf-8")
+            return json.loads(content)
+        # 1MB超の場合は Git Blobs API へフォールバック
+        sha = d.get("sha")
+        if sha:
+            blob_url = f"https://api.github.com/repos/{repo}/git/blobs/{sha}"
+            r2 = requests.get(blob_url, headers=headers, timeout=30)
+            r2.raise_for_status()
+            blob = r2.json()
+            content = base64.b64decode(blob["content"].replace("\n", "")).decode("utf-8")
+            return json.loads(content)
+        return None
+    except Exception:
+        return None
+
+
+# ===== 公開API: get_leader =====
+def get_leader(date_obj, shift: str) -> str:
+    """指定日のリーダー医師名を返す。
+    
+    Args:
+        date_obj: datetime.date オブジェクト
+        shift: "日勤" または "夜勤"
+    Returns:
+        リーダー名 (見つからなければ空文字)
+    """
+    if not date_obj:
+        return ""
+    try:
+        year = date_obj.year
+        month = date_obj.month
+        day = date_obj.day
+    except AttributeError:
+        return ""
+    
+    data = _fetch_month_data(year, month)
+    if not data:
+        return ""
+    
+    date_key = f"{year:04d}-{month:02d}-{day:02d}"
+    day_data = data.get("days", {}).get(date_key, {})
+    
+    # shift 引数を勤務表アプリの形式に変換
+    if shift in ("日勤", "day"):
+        return day_data.get("day_leader", "")
+    elif shift in ("夜勤", "night"):
+        return day_data.get("night_leader", "")
+    return ""
+
+
+# ===== 公開API: load_schedule =====
+def load_schedule() -> dict:
+    """互換目的: 旧形式の {(year, month, day, shift): leader_name} を返す。
+    勤務表アプリのデータから現在月+翌月のリーダー情報を変換。
+    
+    旧コードがこの関数を直接使ってリーダー名を取得していた場合の互換性のため。
+    """
+    from datetime import date as _d, timedelta as _td
+    today = _d.today()
     result = {}
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages:
-            words = page.extract_words()
-            if not words:
+    # 当月と翌月を取得 (月またぎでも安心)
+    for offset_days in [0, 31]:
+        target = today + _td(days=offset_days)
+        data = _fetch_month_data(target.year, target.month)
+        if not data:
+            continue
+        days_dict = data.get("days", {})
+        for date_str, day_info in days_dict.items():
+            try:
+                y, m, d = map(int, date_str.split("-"))
+            except Exception:
                 continue
-            all_text = page.extract_text() or ""
-            ym = re.search(r'(\d{4})年\s*(\d{1,2})\s*月', all_text)
-            if not ym:
-                continue
-            main_year  = int(ym.group(1))
-            main_month = int(ym.group(2))
-            prev_month = main_month - 1 if main_month > 1 else 12
-            prev_year  = main_year if main_month > 1 else main_year - 1
-            boundary_x = 190
-            for w in words:
-                if w['text'] == str(main_month) + '月':
-                    boundary_x = w['x0']
-                    break
-            date_x_map = {}
-            y_groups = {}
-            for w in words:
-                yk = round(w['top'] / 8) * 8
-                y_groups.setdefault(yk, []).append(w)
-            for y in sorted(y_groups):
-                ws = y_groups[y]
-                nums = [(w, int(w['text'])) for w in ws if re.match(r'^\d{1,2}$', w['text'])]
-                if len(nums) < 20:
-                    continue
-                for w, day in nums:
-                    xc = (w['x0'] + w['x1']) / 2
-                    mo = main_month if xc >= boundary_x else prev_month
-                    date_x_map[xc] = (mo, day)
-                break
-            if not date_x_map:
-                continue
-            date_xs = sorted(date_x_map.keys())
-            def x_to_date(x, slack=20):
-                closest = min(date_xs, key=lambda dx: abs(dx - x))
-                return date_x_map[closest] if abs(closest - x) <= slack else None
-            name_ys = {}
-            for w in sorted(words, key=lambda x: x['top']):
-                for name in STAFF_LIST:
-                    if name in w['text'] and name not in name_ys:
-                        name_ys[name] = w['top']
-            for name, ny in name_ys.items():
-                for w in words:
-                    if abs(w['top'] - ny) > 12:
-                        continue
-                    t = w['text']
-                    if '*' not in t:
-                        continue
-                    is_day   = '〇' in t or '○' in t
-                    is_night = '●' in t
-                    is_toosh = '㉕' in t or '㊵' in t
-                    if not (is_day or is_night or is_toosh):
-                        continue
-                    xc = (w['x0'] + w['x1']) / 2
-                    di = x_to_date(xc) or x_to_date(xc + 10) or x_to_date(xc - 10)
-                    if not di:
-                        continue
-                    mo, day = di
-                    key = (mo, day)
-                    result.setdefault(key, {"日勤": "", "夜勤": ""})
-                    if (is_day or is_toosh) and not result[key]["日勤"]:
-                        result[key]["日勤"] = name
-                    if (is_night or is_toosh) and not result[key]["夜勤"]:
-                        result[key]["夜勤"] = name
+            day_leader = day_info.get("day_leader", "")
+            night_leader = day_info.get("night_leader", "")
+            if day_leader:
+                result[(y, m, d, "日勤")] = day_leader
+            if night_leader:
+                result[(y, m, d, "夜勤")] = night_leader
     return result
 
-def schedule_editor_widget(key_prefix="sched"):
-    import streamlit as st
-    import calendar
-    sched = load_schedule()
-    today = date.today()
 
-    # PDFアップロード
-    pdf_file = st.file_uploader(
-        "📋 勤務表PDF（毎月20日頃にアップロード）",
-        type=["pdf"],
-        key=f"{key_prefix}_pdf_upload"
+# ===== 公開API: save_schedule (no-op、書き込みは勤務表アプリのみ可能) =====
+def save_schedule(sched: dict) -> None:
+    """互換目的のスタブ。
+    新仕様では、リーダースケジュールは勤務表アプリ (duty-roster-app) で
+    管理されるため、トリアージ台帳から書き込みはできません。
+    """
+    pass  # 何もしない
+
+
+# ===== 公開API: parse_kinmuhyo_pdf (no-op、PDF解析は廃止) =====
+def parse_kinmuhyo_pdf(pdf_bytes: bytes) -> dict:
+    """互換目的のスタブ。
+    新仕様では、勤務表は Excel ファイルで勤務表アプリ側にアップロードします。
+    トリアージ台帳での PDF 解析機能は廃止されました。
+    """
+    return {}
+
+
+# ===== 公開API: schedule_editor_widget =====
+def schedule_editor_widget(key: str = "sched_editor") -> None:
+    """Streamlit UI ウィジェット: 月次のリーダースケジュール表示用。
+    
+    新仕様では編集はできません (勤務表アプリで管理)。
+    現在月と翌月のリーダー一覧を表示するだけの read-only ウィジェットです。
+    """
+    from datetime import date as _d
+    
+    # 設定状態を確認
+    repo = st.secrets.get("SCHEDULE_REPO", "")
+    token = st.secrets.get("SCHEDULE_TOKEN", "")
+    
+    if not repo or not token:
+        st.warning(
+            "⚠️ 勤務表アプリ連携の設定が未完了です。\n\n"
+            "Streamlit Cloud → Settings → Secrets に以下を追加してください:\n"
+            "```toml\n"
+            'SCHEDULE_REPO = "gateofzen/schedule-storage"\n'
+            'SCHEDULE_TOKEN = "github_pat_xxx..."\n'
+            "```"
+        )
+        return
+    
+    today = _d.today()
+    
+    # 表示する年月を選択 (デフォルトは当月)
+    col_y, col_m = st.columns(2)
+    with col_y:
+        view_year = st.number_input(
+            "表示年", min_value=2024, max_value=2030,
+            value=today.year, step=1, key=f"{key}_year",
+        )
+    with col_m:
+        view_month = st.number_input(
+            "表示月", min_value=1, max_value=12,
+            value=today.month, step=1, key=f"{key}_month",
+        )
+    
+    view_year = int(view_year)
+    view_month = int(view_month)
+    
+    # データ取得
+    data = _fetch_month_data(view_year, view_month)
+    if not data:
+        st.info(
+            f"ℹ️ {view_year}年{view_month}月のデータがまだ勤務表アプリに登録されていません。\n\n"
+            "管理者が勤務表アプリでExcelをアップロードすると、ここにリーダー一覧が表示されます。"
+        )
+        return
+    
+    days = data.get("days", {})
+    if not days:
+        st.warning("データが空です。")
+        return
+    
+    # 一覧表示
+    import calendar as _cal
+    weekdays_jp = "月火水木金土日"
+    days_in_month = _cal.monthrange(view_year, view_month)[1]
+    
+    rows = []
+    for d in range(1, days_in_month + 1):
+        date_str = f"{view_year:04d}-{view_month:02d}-{d:02d}"
+        date_obj = _d(view_year, view_month, d)
+        wd = weekdays_jp[date_obj.weekday()]
+        day_info = days.get(date_str, {})
+        rows.append({
+            "日": d,
+            "曜": wd,
+            "日勤リーダー": day_info.get("day_leader", "—"),
+            "夜勤リーダー": day_info.get("night_leader", "—"),
+        })
+    
+    try:
+        import pandas as pd
+        df = pd.DataFrame(rows)
+        st.dataframe(df, hide_index=True, use_container_width=True, height=400)
+    except ImportError:
+        # pandas 無しなら text 表示
+        for row in rows:
+            st.text(
+                f"{row['日']:>2}日({row['曜']}) "
+                f"日勤={row['日勤リーダー']:<6} 夜勤={row['夜勤リーダー']}"
+            )
+    
+    # 末尾に管理リンク
+    st.caption(
+        "💡 リーダー情報の変更は **勤務表アプリ (duty-roster-app)** で行います。"
+        "このアプリでは閲覧のみ可能です。"
     )
-    if pdf_file is not None:
-        with st.spinner("勤務表を解析中..."):
-            parsed = parse_kinmuhyo_pdf(pdf_file.read())
-        if parsed:
-            months_in_parsed = set(k[0] for k in parsed.keys())
-            sched = {k: v for k, v in sched.items() if k[0] not in months_in_parsed}
-            sched.update(parsed)
-            save_schedule(sched)
-            st.success(f"✅ {len(parsed)}日分のリーダー情報を更新しました（{sorted(months_in_parsed)}月）")
-            st.rerun()
-        else:
-            st.error("⚠️ 解析できませんでした。フォーマットを確認してください")
-
-    st.divider()
-
-    # 月選択
-    existing_months = sorted(set(k[0] for k in sched.keys()))
-    all_months = sorted(set([today.month, today.month % 12 + 1] + existing_months))
-    month_sel = st.selectbox("確認・修正する月", all_months,
-                             index=all_months.index(today.month) if today.month in all_months else 0,
-                             format_func=lambda m: f"{m}月",
-                             key=f"{key_prefix}_month")
-
-    _, days_in_month = calendar.monthrange(today.year, month_sel)
-    st.caption("🌕日勤リーダー（〇*）　🌑夜勤リーダー（●*）　空欄=未設定")
-
-    changed = False
-    for week_start in range(1, days_in_month + 1, 7):
-        week_days = list(range(week_start, min(week_start + 7, days_in_month + 1)))
-        cols = st.columns(len(week_days))
-        for ci, day in enumerate(week_days):
-            key = (month_sel, day)
-            entry = sched.get(key, {"日勤": "", "夜勤": ""})
-            with cols[ci]:
-                wd_names = ["月","火","水","木","金","土","日"]
-                try:
-                    wd = wd_names[date(today.year, month_sel, day).weekday()]
-                except: wd = ""
-                is_today = (today.month == month_sel and today.day == day)
-                st.markdown(f"**{day}({wd})**" if is_today else f"{day}({wd})")
-                opts = [""] + STAFF_LIST
-                cur_n = entry.get("日勤","")
-                cur_y = entry.get("夜勤","")
-                new_n = st.selectbox("🌕", opts,
-                                     index=opts.index(cur_n) if cur_n in opts else 0,
-                                     key=f"{key_prefix}_{month_sel}_{day}_n",
-                                     label_visibility="collapsed")
-                new_y = st.selectbox("🌑", opts,
-                                     index=opts.index(cur_y) if cur_y in opts else 0,
-                                     key=f"{key_prefix}_{month_sel}_{day}_y",
-                                     label_visibility="collapsed")
-                if new_n != cur_n or new_y != cur_y:
-                    sched[key] = {"日勤": new_n, "夜勤": new_y}
-                    changed = True
-    if changed:
-        save_schedule(sched)
-        st.toast("✅ 保存しました")
