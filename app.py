@@ -1318,10 +1318,10 @@ if records:
                     pw, ph = iw*scale, ih*scale
                     x = MARGIN + (avail_w - pw) / 2
                     y = MARGIN + (avail_h - ph) / 2
-                    img_buf = io.BytesIO()
-                    img.save(img_buf, format="JPEG", quality=95)
-                    img_buf.seek(0)
-                    c.drawImage(ImageReader(img_buf), x, y, width=pw, height=ph)
+                    _ibuf = io.BytesIO()
+                    img.save(_ibuf, format="JPEG", quality=95)
+                    _ibuf.seek(0)
+                    c.drawImage(ImageReader(_ibuf), x, y, width=pw, height=ph)
                     c.showPage()
                 c.save()
                 pdf_buf.seek(0)
