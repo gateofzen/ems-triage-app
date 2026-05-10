@@ -1203,7 +1203,10 @@ if records:
     [data-testid="stHorizontalBlock"] button{padding:2px 8px!important;font-size:12px!important;min-height:28px!important;height:28px!important;line-height:1!important}
     </style>""", unsafe_allow_html=True)
     # case_noでソート
-    sorted_records = sorted(records.items(), key=lambda x: int(x[1].get("case_no", 99)))
+    sorted_records = sorted(records.items(), key=lambda x: (
+            *get_shift_identity(x[1].get("data",{}).get("dt_str","")),
+            int(x[1].get("case_no", 99))
+        ))
     for key, rec in sorted_records:
         rec_res = rec.get("res", {})
         if rec_res.get("decision") == "不応需":
@@ -1237,7 +1240,10 @@ if records:
         all_records = st.session_state.triage_records
         if all_records:
             # case_no順にソート
-            sorted_bulk = sorted(all_records.items(), key=lambda x: int(x[1].get("case_no", 99)))
+            sorted_bulk = sorted(all_records.items(), key=lambda x: (
+            *get_shift_identity(x[1].get("data",{}).get("dt_str","")),
+            int(x[1].get("case_no", 99))
+        ))
             all_images = []  # Gmail添付用
             for key, rec in sorted_bulk:
                 data = rec["data"]
@@ -1252,6 +1258,7 @@ if records:
                 free_note = rec.get("free_note","")
                 kana = data.get("kana","").strip()
                 display = kana if kana else key
+                shift_date, _ = get_shift_identity(data.get("dt_str",""))
                 st.write(f"**{case_no}. {display}**")
                 result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
                                        decision, res, case_no, free_note)
@@ -1270,47 +1277,69 @@ if records:
                     _dt = f"{_y}{int(_m):02d}{int(_d):02d}_{_hm[:4]}"
                 except: _dt = ""
                 filename = f"triage_{case_no:02d}_{_dt}_{_age}{_sex}.jpg"
-                all_images.append((filename, img_bytes))
-            # セッションに保存（Gmail送信用）
+                all_images.append((filename, img_bytes, shift_date, shift))
+            # セッションに保存
             st.session_state.bulk_images = all_images
             st.success(f"✅ {len(all_images)}件の台帳を生成しました。")
 
-    # 一括PDFダウンロード（A4・余白付き）
+    # 一括PDFダウンロード（日勤・夜勤別）
     if st.session_state.get("bulk_images"):
         try:
             from reportlab.pdfgen import canvas as rl_canvas
             from reportlab.lib.pagesizes import A4
             from reportlab.lib.utils import ImageReader
             from PIL import Image as PILImage
+            from datetime import date
 
             A4_W, A4_H = A4
-            MARGIN = 28  # 10mm余白
+            MARGIN = 28
             avail_w = A4_W - 2*MARGIN
             avail_h = A4_H - 2*MARGIN
 
-            pdf_buf = io.BytesIO()
-            c = rl_canvas.Canvas(pdf_buf, pagesize=A4)
-            for _, img_bytes in st.session_state.bulk_images:
-                img = PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
-                iw, ih = img.size
-                scale = min(avail_w/iw, avail_h/ih)
-                pw, ph = iw*scale, ih*scale
-                x = MARGIN + (avail_w - pw) / 2
-                y = MARGIN + (avail_h - ph) / 2
-                img_buf = io.BytesIO()
-                img.save(img_buf, format="JPEG", quality=95)
-                img_buf.seek(0)
-                c.drawImage(ImageReader(img_buf), x, y, width=pw, height=ph)
-                c.showPage()
-            c.save()
-            pdf_buf.seek(0)
-            from datetime import date
-            pdf_name = f"triage_{date.today().strftime('%Y%m%d')}.pdf"
-            st.download_button(
-                "📄 全台帳を1つのPDFで保存（A4印刷用）",
-                pdf_buf.getvalue(), pdf_name, "application/pdf",
-                use_container_width=True, type="primary"
-            )
+            def make_pdf(img_list):
+                pdf_buf = io.BytesIO()
+                c = rl_canvas.Canvas(pdf_buf, pagesize=A4)
+                for img_bytes in img_list:
+                    img = PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
+                    iw, ih = img.size
+                    scale = min(avail_w/iw, avail_h/ih)
+                    pw, ph = iw*scale, ih*scale
+                    x = MARGIN + (avail_w - pw) / 2
+                    y = MARGIN + (avail_h - ph) / 2
+                    img_buf = io.BytesIO()
+                    img.save(img_buf, format="JPEG", quality=95)
+                    img_buf.seek(0)
+                    c.drawImage(ImageReader(img_buf), x, y, width=pw, height=ph)
+                    c.showPage()
+                c.save()
+                pdf_buf.seek(0)
+                return pdf_buf.getvalue()
+
+            # 日勤・夜勤ごとにグループ化
+            from itertools import groupby
+            bulk = st.session_state.bulk_images
+            # (shift_date, shift) でグループ化
+            # bulk要素が3要素(古い形式)の場合に対応
+            def get_shift_key(item):
+                if len(item) >= 4:
+                    return (item[2], item[3])  # (shift_date, shift)
+                return ("", "")
+
+            groups = {}
+            for item in bulk:
+                k = get_shift_key(item)
+                groups.setdefault(k, []).append(item[1])  # img_bytes
+
+            pdf_cols = st.columns(len(groups)) if len(groups) > 1 else [st]
+            for ci, ((sdate, sshift), imgs) in enumerate(sorted(groups.items())):
+                pdf_bytes = make_pdf(imgs)
+                label = f"{sdate} {sshift}" if sdate else sshift
+                fname = f"triage_{sdate.replace('/','')}_{sshift}_{date.today().strftime('%Y%m%d')}.pdf"
+                btn_label = f"📄 {label} PDF（{len(imgs)}件）"
+                with pdf_cols[ci] if len(groups) > 1 else pdf_cols[0]:
+                    st.download_button(btn_label, pdf_bytes, fname, "application/pdf",
+                                       use_container_width=True, type="primary",
+                                       key=f"pdf_{ci}")
         except Exception as e:
             st.error(f"PDF生成エラー: {e}")
 
