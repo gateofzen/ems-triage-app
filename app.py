@@ -1342,14 +1342,24 @@ if records:
                 k = get_shift_key(item)
                 groups.setdefault(k, []).append(item[1])  # img_bytes
 
-            pdf_cols = st.columns(len(groups)) if len(groups) > 1 else [st]
-            for ci, ((sdate, sshift), imgs) in enumerate(sorted(groups.items())):
-                pdf_bytes = make_pdf(imgs)
+            sorted_groups = sorted(groups.items())
+            if len(sorted_groups) > 1:
+                pdf_cols = st.columns(len(sorted_groups))
+            else:
+                pdf_cols = None
+
+            for ci, ((sdate, sshift), imgs) in enumerate(sorted_groups):
+                pdf_bytes_out = make_pdf(imgs)
                 label = f"{sdate} {sshift}" if sdate else sshift
                 fname = f"triage_{sdate.replace('/','')}_{sshift}_{date.today().strftime('%Y%m%d')}.pdf"
                 btn_label = f"📄 {label} PDF（{len(imgs)}件）"
-                with pdf_cols[ci] if len(groups) > 1 else pdf_cols[0]:
-                    st.download_button(btn_label, pdf_bytes, fname, "application/pdf",
+                if pdf_cols:
+                    with pdf_cols[ci]:
+                        st.download_button(btn_label, pdf_bytes_out, fname, "application/pdf",
+                                           use_container_width=True, type="primary",
+                                           key=f"pdf_{ci}")
+                else:
+                    st.download_button(btn_label, pdf_bytes_out, fname, "application/pdf",
                                        use_container_width=True, type="primary",
                                        key=f"pdf_{ci}")
         except Exception as e:
