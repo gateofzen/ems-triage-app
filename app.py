@@ -1207,7 +1207,19 @@ if records:
             *get_shift_identity(x[1].get("data",{}).get("dt_str","")),
             int(x[1].get("case_no", 99))
         ))
+    current_group = None
     for key, rec in sorted_records:
+        # シフトグループヘッダー
+        sd, st_type = get_shift_identity(rec.get("data",{}).get("dt_str",""))
+        group_key = (sd, st_type)
+        if group_key != current_group:
+            current_group = group_key
+            icon = "🌕" if st_type == "日勤" else "🌑"
+            st.markdown(
+                f"<div style='margin:10px 0 2px 0;font-size:13px;font-weight:bold;"
+                f"color:#888;border-bottom:1px solid #444;padding-bottom:2px'>"
+                f"{icon} {sd} {st_type}</div>",
+                unsafe_allow_html=True)
         rec_res = rec.get("res", {})
         if rec_res.get("decision") == "不応需":
             outcome_str = "不応需"
