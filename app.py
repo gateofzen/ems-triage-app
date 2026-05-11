@@ -939,7 +939,7 @@ if st.session_state.input_mode == "qr":
                 rec_idx = recorders.index(_def_rec_qr) if _def_rec_qr in recorders else 0
                 recorder = st.selectbox("記載者", recorders, index=rec_idx)
                 origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
-                history_yn = st.radio("受診歴", ["無", "有"], horizontal=True)
+                history_yn = st.radio("受診歴", ["無", "有"], horizontal=True, key="qr_hist_yn")
             with col2:
                 history_dept = ""
                 if history_yn == "有":
