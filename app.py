@@ -940,10 +940,10 @@ if st.session_state.input_mode == "qr":
                 recorder = st.selectbox("記載者", recorders, index=rec_idx)
                 origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
                 history_yn = st.radio("受診歴", ["無", "有"], horizontal=True, key="qr_hist_yn")
-            with col2:
                 history_dept = ""
                 if history_yn == "有":
                     history_dept = st.text_input("受診科名", key="qr_hist_dept")
+            with col2:
                 decision = st.radio("判定", ["応需", "不応需"], horizontal=True)
 
             complaint_edit = st.text_input("主訴（編集可）", value=data["complaint"])
