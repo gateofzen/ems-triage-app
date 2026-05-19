@@ -1447,39 +1447,39 @@ if records:
                 st.session_state.confirm_clear = False
                 st.rerun()
 
-    # ===== ゴミ箱 =====
-    _trash = purge_expired_trash()
-    if _trash:
-        with st.expander(f"🗑️ ゴミ箱（{len(_trash)}件・24時間以内なら復元可）", expanded=False):
-            from datetime import datetime as _dtc, timezone as _tzc, timedelta as _tdc
-            _now_jst = _dtc.now(_tzc(_tdc(hours=9)))
-            for _tk, _tv in sorted(_trash.items(), key=lambda x: x[1].get("deleted_at","")):
-                _rec = _tv["record"]
-                _data = _rec.get("data", {})
-                _name = _data.get("kana") or _data.get("kanji") or _tk
-                _dt_str = _data.get("dt_str","")
-                try:
-                    _del_at = _dtc.fromisoformat(_tv["deleted_at"])
-                    _remain = 24 - (_now_jst - _del_at).total_seconds() / 3600
-                    _remain_str = f"あと{_remain:.0f}時間"
-                except Exception:
-                    _remain_str = ""
-                _rc1, _rc2 = st.columns([7,2])
-                with _rc1:
-                    st.markdown(
-                        f"<div style='font-size:13px'>{_name}　{_dt_str}　"
-                        f"<span style='color:#888'>（{_remain_str}で完全削除）</span></div>",
-                        unsafe_allow_html=True)
-                with _rc2:
-                    if st.button("↩️ 復元", key=f"restore_{_tk}", use_container_width=True):
-                        _restored = restore_from_trash(_tk)
-                        if _restored:
-                            st.session_state.triage_records[_tk] = _restored
-                            save_records(st.session_state.triage_records)
-                            st.success(f"✅ {_name} を復元しました")
-                            st.rerun()
-
     st.divider()
+
+# ===== ゴミ箱（if records:の外側）=====
+_trash = purge_expired_trash()
+if _trash:
+    with st.expander(f"🗑️ ゴミ箱（{len(_trash)}件・24時間以内なら復元可）", expanded=True):
+        from datetime import datetime as _dtc, timezone as _tzc, timedelta as _tdc
+        _now_jst = _dtc.now(_tzc(_tdc(hours=9)))
+        for _tk, _tv in sorted(_trash.items(), key=lambda x: x[1].get("deleted_at","")):
+            _rec = _tv["record"]
+            _data = _rec.get("data", {})
+            _name = _data.get("kana") or _data.get("kanji") or _tk
+            _dt_str = _data.get("dt_str","")
+            try:
+                _del_at = _dtc.fromisoformat(_tv["deleted_at"])
+                _remain = 24 - (_now_jst - _del_at).total_seconds() / 3600
+                _remain_str = f"あと{_remain:.0f}時間"
+            except Exception:
+                _remain_str = ""
+            _rc1, _rc2 = st.columns([7,2])
+            with _rc1:
+                st.markdown(
+                    f"<div style='font-size:13px'>{_name}　{_dt_str}　"
+                    f"<span style='color:#888'>（{_remain_str}で完全削除）</span></div>",
+                    unsafe_allow_html=True)
+            with _rc2:
+                if st.button("↩️ 復元", key=f"restore_{_tk}", use_container_width=True):
+                    _restored = restore_from_trash(_tk)
+                    if _restored:
+                        st.session_state.triage_records[_tk] = _restored
+                        save_records(st.session_state.triage_records)
+                        st.success(f"✅ {_name} を復元しました")
+                        st.rerun()
 
 # ===== 勤務表リーダー設定 =====
 with st.expander("📅 勤務表リーダー設定", expanded=False):
