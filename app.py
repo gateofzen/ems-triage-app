@@ -1493,7 +1493,7 @@ pages.forEach(function(b64){{
 # ===== ゴミ箱（if records:の外側）=====
 _trash = purge_expired_trash()
 if _trash:
-    with st.expander(f"🗑️ ゴミ箱（{len(_trash)}件・24時間以内なら復元可）", expanded=True):
+    with st.expander(f"🗑️ ゴミ箱（{len(_trash)}件・24時間以内なら復元可）", expanded=False):
         from datetime import datetime as _dtc, timezone as _tzc, timedelta as _tdc
         _now_jst = _dtc.now(_tzc(_tdc(hours=9)))
         for _tk, _tv in sorted(_trash.items(), key=lambda x: x[1].get("deleted_at","")):
