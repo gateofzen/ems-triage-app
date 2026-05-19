@@ -139,6 +139,62 @@ def get_default_recorder(dt_str=None):
 # ===== ファイル永続化 =====
 RECORDS_FILE = "triage_records.json"
 
+TRASH_FILE = "triage_trash.json"
+
+def load_trash():
+    if os.path.exists(TRASH_FILE):
+        try:
+            with open(TRASH_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_trash(trash):
+    try:
+        with open(TRASH_FILE, "w", encoding="utf-8") as f:
+            json.dump(trash, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def move_to_trash(records_dict):
+    """recordsをゴミ箱に移動（24時間後に自動削除）"""
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    trash = load_trash()
+    now_str = _dt.now(_tz(_td(hours=9))).isoformat()
+    for k, v in records_dict.items():
+        trash[k] = {"record": v, "deleted_at": now_str}
+    save_trash(trash)
+
+def purge_expired_trash():
+    """24時間経過したゴミ箱データを完全削除"""
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    trash = load_trash()
+    now = _dt.now(_tz(_td(hours=9)))
+    kept = {}
+    for k, v in trash.items():
+        try:
+            deleted_at = _dt.fromisoformat(v["deleted_at"])
+            if (now - deleted_at).total_seconds() < 86400:
+                kept[k] = v
+        except Exception:
+            pass
+    if len(kept) != len(trash):
+        save_trash(kept)
+    return kept
+
+def restore_from_trash(key):
+    """ゴミ箱から1件復元"""
+    trash = load_trash()
+    if key in trash:
+        rec = trash[key]["record"]
+        del trash[key]
+        save_trash(trash)
+        return rec
+    return None
+
+
+
 def load_records():
     if os.path.exists(RECORDS_FILE):
         try:
@@ -674,6 +730,7 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
 # セッション状態初期化（ページリロード時はファイルから復元）
 if "triage_records" not in st.session_state:
     st.session_state.triage_records = load_records()
+    purge_expired_trash()  # 起動時に24時間経過分を完全削除
 if "triage_raw" not in st.session_state:
     st.session_state.triage_raw = None
 if "uploader_key" not in st.session_state:
@@ -1189,6 +1246,7 @@ if "action" in params and "key" in params:
     if action == "edit" and target in records:
         st.session_state.editing_key = target
     elif action == "del" and target in records:
+        move_to_trash({target: records[target]})
         del st.session_state.triage_records[target]
         save_records(st.session_state.triage_records)
         if st.session_state.editing_key == target:
@@ -1375,10 +1433,11 @@ if records:
             st.session_state.confirm_clear = True
             st.rerun()
     else:
-        st.warning("⚠️ 保存済み患者を全員削除します。この操作は取り消せません。")
+        st.warning("⚠️ 保存済み患者をゴミ箱に移動します。\n印刷前に削除していませんか？ゴミ箱から24時間以内なら復元可能です。")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("✅ はい、全削除する", type="primary", use_container_width=True):
+            if st.button("✅ ゴミ箱に移動", type="primary", use_container_width=True):
+                move_to_trash(st.session_state.triage_records)
                 st.session_state.triage_records = {}
                 save_records({})
                 st.session_state.confirm_clear = False
@@ -1387,6 +1446,38 @@ if records:
             if st.button("❌ キャンセル", use_container_width=True):
                 st.session_state.confirm_clear = False
                 st.rerun()
+
+    # ===== ゴミ箱 =====
+    _trash = purge_expired_trash()
+    if _trash:
+        with st.expander(f"🗑️ ゴミ箱（{len(_trash)}件・24時間以内なら復元可）", expanded=False):
+            from datetime import datetime as _dtc, timezone as _tzc, timedelta as _tdc
+            _now_jst = _dtc.now(_tzc(_tdc(hours=9)))
+            for _tk, _tv in sorted(_trash.items(), key=lambda x: x[1].get("deleted_at","")):
+                _rec = _tv["record"]
+                _data = _rec.get("data", {})
+                _name = _data.get("kana") or _data.get("kanji") or _tk
+                _dt_str = _data.get("dt_str","")
+                try:
+                    _del_at = _dtc.fromisoformat(_tv["deleted_at"])
+                    _remain = 24 - (_now_jst - _del_at).total_seconds() / 3600
+                    _remain_str = f"あと{_remain:.0f}時間"
+                except Exception:
+                    _remain_str = ""
+                _rc1, _rc2 = st.columns([7,2])
+                with _rc1:
+                    st.markdown(
+                        f"<div style='font-size:13px'>{_name}　{_dt_str}　"
+                        f"<span style='color:#888'>（{_remain_str}で完全削除）</span></div>",
+                        unsafe_allow_html=True)
+                with _rc2:
+                    if st.button("↩️ 復元", key=f"restore_{_tk}", use_container_width=True):
+                        _restored = restore_from_trash(_tk)
+                        if _restored:
+                            st.session_state.triage_records[_tk] = _restored
+                            save_records(st.session_state.triage_records)
+                            st.success(f"✅ {_name} を復元しました")
+                            st.rerun()
 
     st.divider()
 
