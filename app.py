@@ -10,7 +10,7 @@ import os
 import json
 import urllib.parse
 from datetime import datetime
-from leader_schedule import get_leader, schedule_editor_widget, STAFF_LIST as SCHEDULE_STAFF
+from leader_schedule import get_leader, schedule_editor_widget
 
 st.set_page_config(page_title="トリアージ台帳自動作成", layout="centered")
 st.title("🚑 トリアージ台帳自動作成")
@@ -1525,7 +1525,6 @@ if _trash:
 # ===== 勤務表リーダー設定 =====
 with st.expander("📅 勤務表リーダー設定", expanded=False):
     from datetime import timezone as _stz, timedelta as _std
-    from leader_schedule import parse_kinmuhyo_pdf as parse_schedule_pdf, save_schedule, load_schedule
     _jst_now2 = __import__('datetime').datetime.now(_stz(_std(hours=9)))
     _today2 = _jst_now2.date()
     _shift_now2 = detect_shift(f"{_today2.month}/{_today2.day}（）{_jst_now2.hour:02d}:{_jst_now2.minute:02d}")
@@ -1534,22 +1533,5 @@ with st.expander("📅 勤務表リーダー設定", expanded=False):
         st.info(f"👤 本日 {_today2.month}/{_today2.day} {_shift_now2}のリーダー: **{_leader_now2}**")
     else:
         st.warning(f"⚠️ 本日 {_today2.month}/{_today2.day} {_shift_now2}のリーダーが未設定です")
-    # PDFアップロード
-    pdf_file = st.file_uploader("📄 勤務表PDFをアップロード（毎月20日頃に更新）",
-                                 type=["pdf"], key="sched_pdf_upload",
-                                 label_visibility="collapsed")
-    if pdf_file:
-        with st.spinner("勤務表を解析中..."):
-            result = parse_schedule_pdf(pdf_file.read())
-        if result:
-            sched = load_schedule()
-            months = set(k[0] for k in result.keys())
-            sched = {k:v for k,v in sched.items() if k[0] not in months}
-            sched.update(result)
-            save_schedule(sched)
-            st.success(f"✅ {len(result)}日分を更新しました")
-            st.rerun()
-        else:
-            st.error("⚠️ 解析できませんでした")
-    st.caption("PDFアップロード後に内容を確認・修正できます（日勤=〇*、夜勤=●*）")
+    st.caption("📡 患者受け持ち表アプリ（schedule-storage）から自動取得")
     schedule_editor_widget("triage_sched")
