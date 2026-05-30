@@ -24,8 +24,9 @@ def _fetch_month_data(year: int, month: int) -> dict:
     try:
         import streamlit as st
         import requests as _req
-        repo  = st.secrets.get("SCHEDULE_REPO", "gateofzen/schedule-storage")
-        token = st.secrets.get("SCHEDULE_TOKEN", "")
+        # GITHUB_REPO / GITHUB_TOKEN（患者受け持ち表アプリと同じキー名）
+        repo  = st.secrets.get("GITHUB_REPO",  st.secrets.get("SCHEDULE_REPO", "gateofzen/schedule-storage"))
+        token = st.secrets.get("GITHUB_TOKEN", st.secrets.get("SCHEDULE_TOKEN", ""))
         if not token:
             return {}
         url = f"https://api.github.com/repos/{repo}/contents/month_{year:04d}-{month:02d}.json"
@@ -72,7 +73,7 @@ def schedule_editor_widget(key_prefix="sched"):
 
     if not data:
         st.warning("⚠️ schedule-storageへの接続に失敗しました。\n"
-                   "Streamlit Secrets に `SCHEDULE_REPO` と `SCHEDULE_TOKEN` が設定されているか確認してください。")
+                   "Streamlit Secrets に `GITHUB_REPO` と `GITHUB_TOKEN` が設定されているか確認してください。")
         return
 
     # 月選択
