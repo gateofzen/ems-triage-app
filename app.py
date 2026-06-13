@@ -809,14 +809,15 @@ if st.session_state.manual_mode:
     RESCUE_TEAMS_M = ["","警防","中央","大通","山鼻","豊水","幌西","北","北エルム","あいの里",
         "篠路","新光","東","東モエレ","栄","札苗","苗穂","白石","南郷","菊水",
         "北郷","厚別","厚別西","豊平","月寒","平岸","西岡","清田","北野","南",
-        "藤野","定山渓","西","発寒","八軒","西野","手稲","前田","その他（直接入力）"]
+        "藤野","定山渓","西","発寒","八軒","西野","手稲","前田","その他↓"]
     mc_a, mc_b = st.columns(2)
     with mc_a:
         m_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_M, key="m_team_sel")
-        if m_team_sel == "その他（直接入力）":
-            m_team = st.text_input("救急隊名を入力", key="m_team_other", placeholder="例: 石狩")
-        else:
-            m_team = m_team_sel
+        m_team_other = st.text_input("リストにない場合は直接入力",
+                                     key="m_team_other", placeholder="例: 石狩、恵庭など")
+        # 直接入力が優先、なければセレクトボックス値
+        m_team = m_team_other.strip() if m_team_other.strip() else (
+            m_team_sel if m_team_sel != "その他↓" else "")
     with mc_b:
         m_history_yn = st.radio("受診歴", ["無","有"], horizontal=True, key="m_hist_yn")
         m_history_dept = ""
