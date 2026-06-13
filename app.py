@@ -1071,6 +1071,13 @@ if editing_key and editing_key in records:
     st.subheader(f"✏️ 編集：{display}")
     res = dict(rec.get("res", {}))
 
+    # 受付時刻
+    st.markdown("**受付日時**")
+    _cur_dt = data.get("dt_str","")
+    e_dt_str = st.text_input("受付日時（例: 4/10（木）17:40）",
+                             value=_cur_dt, key="ed_dt_str",
+                             help="日付・時刻を変更するとシフト・No.が自動更新されます")
+
     # 基本情報
     st.markdown("**基本情報**")
     ec1, ec2 = st.columns(2)
@@ -1191,6 +1198,7 @@ if editing_key and editing_key in records:
             data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
             data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
             data["o2_flow"]=e_o2_flow; data["o2_device"]=e_o2_device; data["spo2_before"]=e_spo2_b
+            if e_dt_str.strip(): data["dt_str"] = e_dt_str.strip()
             records[editing_key]["data"] = data
             records[editing_key]["res"] = res
             records[editing_key]["free_note"] = free_note
@@ -1199,7 +1207,7 @@ if editing_key and editing_key in records:
             records[editing_key]["origin"] = e_origin
             records[editing_key]["history_yn"] = e_history_yn
             records[editing_key]["history_dept"] = e_history_dept
-            records[editing_key]["shift"] = shift
+            records[editing_key]["shift"] = detect_shift(data["dt_str"])
             save_records(st.session_state.triage_records)
             st.session_state.editing_key = None
             st.success("保存しました")
@@ -1213,6 +1221,7 @@ if editing_key and editing_key in records:
             data["jcs"]=e_jcs; data["bp_s"]=e_bps; data["bp_d"]=e_bpd
             data["hr"]=e_hr; data["rr"]=e_rr; data["spo2"]=e_spo2; data["bt"]=e_bt
             data["o2_flow"]=e_o2_flow; data["o2_device"]=e_o2_device; data["spo2_before"]=e_spo2_b
+            if e_dt_str.strip(): data["dt_str"] = e_dt_str.strip()
             records[editing_key]["data"] = data
             records[editing_key]["res"] = res
             records[editing_key]["free_note"] = free_note
