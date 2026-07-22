@@ -1315,7 +1315,47 @@ if records:
                     st.session_state.editing_key = None
                 st.rerun()
 
-    # 台帳一括生成ボタン
+    # 台帳一括生成ボタン＋既存の印刷ボタン（上部）
+    if st.session_state.get("bulk_images"):
+        _all_imgs_bytes_top = [item[1] for item in st.session_state.bulk_images]
+        if _all_imgs_bytes_top:
+            import base64 as _b64t
+            _pages_b64_top = [_b64t.b64encode(_ib).decode() for _ib in _all_imgs_bytes_top]
+            _pages_json_top = "[" + ",".join([f'"{p}"' for p in _pages_b64_top]) + "]"
+            _print_top_html = f"""<!DOCTYPE html><html><head><style>
+@page{{size:A4;margin:0}}
+body{{margin:0;padding:0;background:transparent;font-family:sans-serif}}
+@media screen{{
+.btn{{display:block;width:100%;height:38px;padding:0 14px;box-sizing:border-box;
+  background:transparent;color:inherit;border:1px solid rgba(49,51,63,0.2);
+  border-radius:4px;font-size:0.875rem;cursor:pointer}}
+.btn:hover{{border-color:#f63366;color:#f63366}}
+@media(prefers-color-scheme:dark){{.btn{{border-color:rgba(250,250,250,0.2);color:#fff}}}}
+.imgs{{display:none}}
+}}
+@media print{{
+.btn{{display:none}}
+.imgs{{display:block}}
+.page{{page-break-after:always;width:100%;height:100vh;overflow:hidden}}
+.page:last-child{{page-break-after:avoid}}
+img{{width:100%;height:auto;max-height:100vh;display:block}}
+}}
+</style></head><body>
+<div class="imgs" id="ctop"></div>
+<button class="btn" onclick="window.print()">🖨️ 全台帳を印刷（{len(_all_imgs_bytes_top)}枚）</button>
+<script>
+var pages={_pages_json_top};
+var c=document.getElementById('ctop');
+pages.forEach(function(b64){{
+  var div=document.createElement('div');div.className='page';
+  var img=document.createElement('img');
+  img.src='data:image/jpeg;base64,'+b64;
+  div.appendChild(img);c.appendChild(div);
+}});
+</script>
+</body></html>"""
+            components.html(_print_top_html, height=46)
+
     if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
         all_records = st.session_state.triage_records
         if all_records:
