@@ -1402,8 +1402,20 @@ pages.forEach(function(b64){{
             st.session_state.bulk_images = all_images
             st.rerun()  # ページ先頭の印刷ボタンを表示するため再描画
 
-    # 一括PDFダウンロード（日勤・夜勤別）
+    # 一括PDFダウンロード（日勤・夜勤別）＋生成済み画像の表示
     if st.session_state.get("bulk_images"):
+        # 生成済み画像を表示
+        _prev_group = None
+        for _fname, _ibytes, _sdate, _sshift in st.session_state.bulk_images:
+            _g = (_sdate, _sshift)
+            if _g != _prev_group:
+                _prev_group = _g
+                _icon = "🌕" if _sshift == "日勤" else "🌑"
+                st.markdown(f"<div style='margin:10px 0 2px 0;font-size:13px;font-weight:bold;"
+                            f"color:#888;border-bottom:1px solid #444;padding-bottom:2px'>"
+                            f"{_icon} {_sdate} {_sshift}</div>", unsafe_allow_html=True)
+            st.image(_ibytes, use_container_width=True)
+
         try:
             from reportlab.pdfgen import canvas as rl_canvas
             from reportlab.lib.pagesizes import A4
