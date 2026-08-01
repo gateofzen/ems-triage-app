@@ -142,20 +142,30 @@ RECORDS_FILE = "triage_records.json"
 TRASH_FILE = "triage_trash.json"
 
 def load_trash():
+    token, repo = _gh_records_config()
+    if token:
+        data = _gh_pull(token, repo, "triage_trash.json")
+        if data is not None:
+            try:
+                with open(TRASH_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception: pass
+            return data
     if os.path.exists(TRASH_FILE):
         try:
             with open(TRASH_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            return {}
+        except Exception: return {}
     return {}
 
 def save_trash(trash):
     try:
         with open(TRASH_FILE, "w", encoding="utf-8") as f:
             json.dump(trash, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception: pass
+    token, repo = _gh_records_config()
+    if token:
+        _gh_push(token, repo, "triage_trash.json", trash)
 
 def move_to_trash(records_dict):
     """recordsをゴミ箱に移動（24時間後に自動削除）"""
@@ -195,21 +205,92 @@ def restore_from_trash(key):
 
 
 
+def _gh_records_config():
+    """GitHub保存設定をStreamlit Secretsから取得"""
+    try:
+        import streamlit as st
+        token = st.secrets.get("GITHUB_TOKEN", st.secrets.get("SCHEDULE_TOKEN", ""))
+        repo  = st.secrets.get("RECORDS_REPO", "gateofzen/triage-storage")
+        return token, repo
+    except Exception:
+        return "", ""
+
+def _gh_get_sha(token, repo, filename):
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/contents/{filename}",
+            headers={"Authorization": f"Bearer {token}",
+                     "Accept": "application/vnd.github.v3+json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())["sha"]
+    except Exception:
+        return None
+
+def _gh_push(token, repo, filename, data_dict):
+    """JSONをGitHubにPUT"""
+    if not token: return False
+    try:
+        import urllib.request, base64 as _b64
+        content = _b64.b64encode(
+            json.dumps(data_dict, ensure_ascii=False, indent=2).encode()).decode()
+        sha = _gh_get_sha(token, repo, filename)
+        payload = {"message": f"update {filename}", "content": content}
+        if sha: payload["sha"] = sha
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/contents/{filename}",
+            data=json.dumps(payload).encode(),
+            headers={"Authorization": f"Bearer {token}",
+                     "Accept": "application/vnd.github.v3+json",
+                     "Content-Type": "application/json"},
+            method="PUT")
+        with urllib.request.urlopen(req, timeout=15): pass
+        return True
+    except Exception:
+        return False
+
+def _gh_pull(token, repo, filename):
+    """GitHubからJSONを取得"""
+    if not token: return None
+    try:
+        import urllib.request, base64 as _b64
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{repo}/contents/{filename}",
+            headers={"Authorization": f"Bearer {token}",
+                     "Accept": "application/vnd.github.v3+json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            raw = json.loads(r.read())
+        return json.loads(_b64.b64decode(raw["content"].replace("\n","")).decode())
+    except Exception:
+        return None
+
 def load_records():
+    """GitHub優先でロード、失敗時はローカル"""
+    token, repo = _gh_records_config()
+    if token:
+        data = _gh_pull(token, repo, "triage_records.json")
+        if data is not None:
+            try:
+                with open(RECORDS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception: pass
+            return data
     if os.path.exists(RECORDS_FILE):
         try:
             with open(RECORDS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            return {}
+        except Exception: return {}
     return {}
 
 def save_records(records):
+    """ローカル保存＋GitHubバックアップ"""
     try:
         with open(RECORDS_FILE, "w", encoding="utf-8") as f:
             json.dump(records, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception: pass
+    token, repo = _gh_records_config()
+    if token:
+        _gh_push(token, repo, "triage_records.json", records)
 
 # ===== フォントパス =====
 FONT_CANDIDATES = [
