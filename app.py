@@ -955,7 +955,7 @@ st.subheader("🆕 新規患者")
 if "manual_mode" not in st.session_state:
     st.session_state.manual_mode = False
 if "input_mode" not in st.session_state:
-    st.session_state.input_mode = None  # None, "qr", "manual"
+    st.session_state.input_mode = "text"  # "text", "qr", "manual", None
 
 col_qr, col_text, col_manual = st.columns(3)
 with col_text:
@@ -971,13 +971,14 @@ with col_qr:
                  type="primary" if st.session_state.input_mode == "qr" else "secondary"):
         st.session_state.input_mode = "qr"
         st.session_state.manual_mode = False
-        st.session_state.triage_text = None
+        st.session_state.pop("triage_text_input", None)
         st.rerun()
 with col_manual:
     if st.button("✍️ 手入力", use_container_width=True,
                  type="primary" if st.session_state.input_mode == "manual" else "secondary"):
         st.session_state.input_mode = "manual"
         st.session_state.manual_mode = True
+        st.session_state.pop("triage_text_input", None)
         st.session_state.triage_raw = None
         st.session_state.uploaded_bytes = None
         st.rerun()
@@ -1099,6 +1100,7 @@ if st.session_state.manual_mode:
             save_records(st.session_state.triage_records)
             st.session_state.last_recorder = m_recorder
             st.session_state.manual_mode = False
+            st.session_state.pop("triage_text_input", None)
             st.session_state.input_mode = None
             st.success(f"✅ {key} を保存しました。")
             st.rerun()
@@ -1118,30 +1120,21 @@ _data_ready = None
 
 # ===== テキスト貼り付けモード =====
 if st.session_state.input_mode == "text":
-    st.caption("救急隊システムの「コピー」ボタンで取得したテキストを貼り付けてください")
-    _txt = st.text_area("搬送情報テキスト", height=200, key="triage_text_input",
+    st.caption("救急隊システムの「コピー」で取得したテキストを貼り付けてください（貼り付け後、枠外をタップすると自動で解析されます）")
+    _txt = st.text_area("搬送情報テキスト", height=180, key="triage_text_input",
                         placeholder="＜救急搬送＞\n中央５救急 49歳 男性\n...")
-    _tc1, _tc2 = st.columns(2)
-    with _tc1:
-        if st.button("🔍 解析する", type="primary", use_container_width=True,
-                     key="triage_text_parse"):
-            if _txt.strip():
-                st.session_state.triage_text = _txt
-                st.rerun()
-            else:
-                st.warning("テキストが空です")
-    with _tc2:
-        if st.button("🗑️ クリア", use_container_width=True, key="triage_text_clear"):
-            st.session_state.triage_text = None
-            st.session_state.input_mode = None
-            st.rerun()
 
-    if st.session_state.get("triage_text"):
-        _data_ready = parse_text(st.session_state.triage_text)
-        if _data_ready.get("kanji") or _data_ready.get("age"):
-            st.success("✅ テキストを解析しました")
+    if _txt.strip():
+        _parsed = parse_text(_txt)
+        if _parsed.get("kanji") or _parsed.get("age"):
+            _data_ready = _parsed
         else:
             st.warning("⚠️ 解析できた項目がほとんどありません。書式をご確認ください。")
+
+    if _txt:
+        if st.button("🗑️ クリア", use_container_width=True, key="triage_text_clear"):
+            st.session_state.pop("triage_text_input", None)
+            st.rerun()
 
 if st.session_state.input_mode == "qr":
 
@@ -1297,6 +1290,7 @@ if _data_ready is not None:
             st.session_state.triage_raw = None
             st.session_state.uploader_key += 1
             st.session_state.uploaded_bytes = None
+            st.session_state.pop("triage_text_input", None)
             st.session_state.input_mode = None
             st.success(f"✅ {key}（{shift}）のデータを保存しました。")
             st.rerun()
