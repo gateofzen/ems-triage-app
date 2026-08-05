@@ -955,7 +955,7 @@ st.subheader("🆕 新規患者")
 if "manual_mode" not in st.session_state:
     st.session_state.manual_mode = False
 if "input_mode" not in st.session_state:
-    st.session_state.input_mode = "text"  # "text", "qr", "manual", None
+    st.session_state.input_mode = None  # None, "qr", "text", "manual"
 
 col_qr, col_text, col_manual = st.columns(3)
 with col_text:
