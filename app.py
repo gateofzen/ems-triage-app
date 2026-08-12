@@ -100,6 +100,64 @@ def get_shift_identity(dt_str):
     except Exception:
         return "?", "夜勤"
 
+# ===== 勤務帯に基づく自動ゴミ箱移動 =====
+# 日勤(8:30-16:30)に登録 → 翌日08:00（夜勤終了09:30の90分前）に移動
+# 夜勤(それ以外)に登録   → 翌日16:00（日勤終了17:30の90分前）に移動
+def _jst_now():
+    from datetime import datetime as _dt2, timezone as _tz2, timedelta as _td2
+    return _dt2.now(_tz2(_td2(hours=9))).replace(tzinfo=None)
+
+def auto_trash_deadline(dt):
+    """登録日時(naive JST)から自動移動の期限を返す"""
+    from datetime import datetime as _dt2, timedelta as _td2
+    mins = dt.hour * 60 + dt.minute
+    if 8 * 60 + 30 <= mins < 16 * 60 + 30:          # 日勤
+        d = dt.date() + _td2(days=1)
+        return _dt2(d.year, d.month, d.day, 8, 0)
+    # 夜勤（00:00-08:30 は前日始まりの夜勤）
+    d = dt.date() - _td2(days=1) if mins < 8 * 60 + 30 else dt.date()
+    e = d + _td2(days=1)
+    return _dt2(e.year, e.month, e.day, 16, 0)
+
+def _infer_saved_at(rec):
+    """saved_at が無い旧レコードの登録日時を dt_str から推定する"""
+    from datetime import datetime as _dt2
+    try:
+        dt_str = rec.get("data", {}).get("dt_str", "")
+        h, m = _extract_time(dt_str)
+        shift_date, _ = get_shift_identity(dt_str)
+        mo, dy = map(int, shift_date.split("/"))
+        now = _jst_now()
+        year = now.year
+        cand = _dt2(year, mo, dy, h, m)
+        # 未来日になる場合は前年扱い（年末年始対策）
+        if (cand - now).days > 30:
+            cand = _dt2(year - 1, mo, dy, h, m)
+        return cand
+    except Exception:
+        return _jst_now()
+
+def auto_trash_expired_records(records):
+    """期限を過ぎたレコードをゴミ箱へ移動。移動があれば True"""
+    from datetime import datetime as _dt2
+    now = _jst_now()
+    expired = {}
+    for k, v in list(records.items()):
+        sa = v.get("saved_at")
+        try:
+            dt = _dt2.fromisoformat(sa) if sa else _infer_saved_at(v)
+        except Exception:
+            dt = _infer_saved_at(v)
+        if now >= auto_trash_deadline(dt):
+            expired[k] = v
+    if not expired:
+        return False
+    move_to_trash(expired)
+    for k in expired:
+        records.pop(k, None)
+    save_records(records)
+    return True
+
 def auto_case_no(records, dt_str):
     """同一勤務帯（shift_date + shift_type）内の次のNo.を返す"""
     target_date, target_shift = get_shift_identity(dt_str)
@@ -641,6 +699,48 @@ def add_margin_to_image(pil_img, margin_mm=10):
     canvas.paste(pil_img.resize((nw,nh), PILImg.LANCZOS), (x,y))
     return canvas
 
+def make_multi_print_widget(imgs_bytes, key="multi", label=None):
+    """複数枚の台帳画像をまとめて印刷するボタン（A4・1枚1ページ）"""
+    import base64 as _b64m
+    if not imgs_bytes:
+        return ""
+    pages_b64 = [_b64m.b64encode(b).decode() for b in imgs_bytes]
+    pages_json = "[" + ",".join([f'"{p}"' for p in pages_b64]) + "]"
+    if label is None:
+        label = f"🖨️ 台帳を印刷（{len(imgs_bytes)}枚）"
+    return f"""<!DOCTYPE html><html><head><style>
+@page{{size:A4;margin:0}}
+body{{margin:0;padding:0;background:transparent;font-family:sans-serif}}
+@media screen{{
+.btn{{display:block;width:100%;height:38px;padding:0 14px;box-sizing:border-box;
+  background:transparent;color:inherit;border:1px solid rgba(49,51,63,0.2);
+  border-radius:4px;font-size:0.875rem;cursor:pointer}}
+.btn:hover{{border-color:#f63366;color:#f63366}}
+@media(prefers-color-scheme:dark){{.btn{{border-color:rgba(250,250,250,0.2);color:#fff}}}}
+.imgs{{display:none}}
+}}
+@media print{{
+.btn{{display:none}}
+.imgs{{display:block}}
+.page{{page-break-after:always;width:100%;height:100vh;overflow:hidden}}
+.page:last-child{{page-break-after:avoid}}
+img{{width:100%;height:auto;max-height:100vh;display:block}}
+}}
+</style></head><body>
+<div class="imgs" id="c_{key}"></div>
+<button class="btn" onclick="window.print()">{label}</button>
+<script>
+var pages_{key}={pages_json};
+var c_{key}=document.getElementById('c_{key}');
+pages_{key}.forEach(function(b64){{
+  var div=document.createElement('div');div.className='page';
+  var img=document.createElement('img');
+  img.src='data:image/jpeg;base64,'+b64;
+  div.appendChild(img);c_{key}.appendChild(div);
+}});
+</script>
+</body></html>"""
+
 def make_print_widget(pil_img, key="print"):
     """印刷ボタン：クリックするとiframe内で画像を表示しwindow.print()を実行"""
     import base64
@@ -939,6 +1039,8 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
 if "triage_records" not in st.session_state:
     st.session_state.triage_records = load_records()
     purge_expired_trash()  # 起動時に24時間経過分を完全削除
+    if auto_trash_expired_records(st.session_state.triage_records):
+        st.toast("勤務時間の経過した患者をゴミ箱に移動しました")
 if "triage_raw" not in st.session_state:
     st.session_state.triage_raw = None
 if "uploader_key" not in st.session_state:
@@ -1093,6 +1195,7 @@ if st.session_state.manual_mode:
             key = data["kanji"] or data["kana"] or "不明"
             st.session_state.triage_records[key] = {
                 "data": data, "shift": shift, "case_no": m_case_no,
+                "saved_at": _jst_now().isoformat(timespec="seconds"),
                 "recorder": m_recorder, "origin": m_team,
                 "history_yn": m_history_yn, "history_dept": m_history_dept,
                 "decision": m_decision, "res": m_res, "free_note": m_free_note,
@@ -1281,6 +1384,7 @@ if _data_ready is not None:
             key = data["kanji"] or data["kana"] or "不明"
             st.session_state.triage_records[key] = {
                 "data": data, "shift": shift, "case_no": case_no,
+                "saved_at": _jst_now().isoformat(timespec="seconds"),
                 "recorder": recorder, "origin": origin,
                 "history_yn": history_yn, "history_dept": history_dept,
                 "decision": decision, "res": res, "free_note": free_note,
@@ -1558,46 +1662,29 @@ if records:
                     st.session_state.editing_key = None
                 st.rerun()
 
-    # 台帳一括生成ボタン＋既存の印刷ボタン（上部）
+    # 勤務帯ごとの印刷ボタン（上部）
     if st.session_state.get("bulk_images"):
-        _all_imgs_bytes_top = [item[1] for item in st.session_state.bulk_images]
-        if _all_imgs_bytes_top:
-            import base64 as _b64t
-            _pages_b64_top = [_b64t.b64encode(_ib).decode() for _ib in _all_imgs_bytes_top]
-            _pages_json_top = "[" + ",".join([f'"{p}"' for p in _pages_b64_top]) + "]"
-            _print_top_html = f"""<!DOCTYPE html><html><head><style>
-@page{{size:A4;margin:0}}
-body{{margin:0;padding:0;background:transparent;font-family:sans-serif}}
-@media screen{{
-.btn{{display:block;width:100%;height:38px;padding:0 14px;box-sizing:border-box;
-  background:transparent;color:inherit;border:1px solid rgba(49,51,63,0.2);
-  border-radius:4px;font-size:0.875rem;cursor:pointer}}
-.btn:hover{{border-color:#f63366;color:#f63366}}
-@media(prefers-color-scheme:dark){{.btn{{border-color:rgba(250,250,250,0.2);color:#fff}}}}
-.imgs{{display:none}}
-}}
-@media print{{
-.btn{{display:none}}
-.imgs{{display:block}}
-.page{{page-break-after:always;width:100%;height:100vh;overflow:hidden}}
-.page:last-child{{page-break-after:avoid}}
-img{{width:100%;height:auto;max-height:100vh;display:block}}
-}}
-</style></head><body>
-<div class="imgs" id="ctop"></div>
-<button class="btn" onclick="window.print()">🖨️ 全台帳を印刷（{len(_all_imgs_bytes_top)}枚）</button>
-<script>
-var pages={_pages_json_top};
-var c=document.getElementById('ctop');
-pages.forEach(function(b64){{
-  var div=document.createElement('div');div.className='page';
-  var img=document.createElement('img');
-  img.src='data:image/jpeg;base64,'+b64;
-  div.appendChild(img);c.appendChild(div);
-}});
-</script>
-</body></html>"""
-            components.html(_print_top_html, height=46)
+        _bulk_top = st.session_state.bulk_images
+        _groups_top = {}
+        for _it in _bulk_top:
+            _k = (_it[2], _it[3]) if len(_it) >= 4 else ("", "")
+            _groups_top.setdefault(_k, []).append(_it[1])
+
+        st.markdown("<div style='font-size:13px;font-weight:bold;color:#888;'>"
+                    "🖨️ 勤務帯ごとに印刷</div>", unsafe_allow_html=True)
+        for _gi, ((_sd, _ss), _imgs) in enumerate(sorted(_groups_top.items())):
+            _icon = "🌕" if _ss == "日勤" else "🌑"
+            _lbl = f"{_icon} {_sd} {_ss} を印刷（{len(_imgs)}枚）" if _sd \
+                   else f"{_icon} {_ss} を印刷（{len(_imgs)}枚）"
+            components.html(make_multi_print_widget(_imgs, f"g{_gi}", _lbl), height=46)
+
+        if len(_groups_top) > 1:
+            _all_top = [_it[1] for _it in _bulk_top]
+            components.html(
+                make_multi_print_widget(_all_top, "all",
+                                        f"🖨️ 全勤務帯をまとめて印刷（{len(_all_top)}枚）"),
+                height=46)
+        st.divider()
 
     if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
         all_records = st.session_state.triage_records
@@ -1705,24 +1792,22 @@ pages.forEach(function(b64){{
                 k = get_shift_key(item)
                 groups.setdefault(k, []).append(item[1])  # img_bytes
 
-            sorted_groups = sorted(groups.items())
-            if len(sorted_groups) > 1:
-                pdf_cols = st.columns(len(sorted_groups))
-            else:
-                pdf_cols = None
-
-            for ci, ((sdate, sshift), imgs) in enumerate(sorted_groups):
+            for ci, ((sdate, sshift), imgs) in enumerate(sorted(groups.items())):
                 pdf_bytes_out = make_pdf(imgs)
+                icon  = "🌕" if sshift == "日勤" else "🌑"
                 label = f"{sdate} {sshift}" if sdate else sshift
                 fname = f"triage_{sdate.replace('/','')}_{sshift}_{date.today().strftime('%Y%m%d')}.pdf"
-                btn_label = f"📄 {label} PDF（{len(imgs)}件）"
-                if pdf_cols:
-                    with pdf_cols[ci]:
-                        st.download_button(btn_label, pdf_bytes_out, fname, "application/pdf",
-                                           use_container_width=True, type="primary",
-                                           key=f"pdf_{ci}")
-                else:
-                    st.download_button(btn_label, pdf_bytes_out, fname, "application/pdf",
+                st.markdown(f"<div style='margin-top:8px;font-size:13px;font-weight:bold'>"
+                            f"{icon} {label}（{len(imgs)}件）</div>", unsafe_allow_html=True)
+                pc1, pc2 = st.columns(2)
+                with pc1:
+                    components.html(
+                        make_multi_print_widget(imgs, f"pg{ci}",
+                                                f"🖨️ この勤務帯を印刷（{len(imgs)}枚）"),
+                        height=46)
+                with pc2:
+                    st.download_button(f"📄 PDFで保存（{len(imgs)}件）",
+                                       pdf_bytes_out, fname, "application/pdf",
                                        use_container_width=True, type="primary",
                                        key=f"pdf_{ci}")
         except Exception as e:
