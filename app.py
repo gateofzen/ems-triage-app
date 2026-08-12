@@ -1095,8 +1095,8 @@ if st.session_state.manual_mode:
     mc1, mc2 = st.columns(2)
     with mc1:
         from datetime import timezone as _tz, timedelta as _td
-        _jst_now = datetime.now(_tz(_td(hours=9)))
-        _tmp_dt = f"{_jst_now.month}/{_jst_now.day}（）{_jst_now.hour:02d}:{_jst_now.minute:02d}"
+        _now_manual = datetime.now(_tz(_td(hours=9)))
+        _tmp_dt = f"{_now_manual.month}/{_now_manual.day}（）{_now_manual.hour:02d}:{_now_manual.minute:02d}"
         _next = auto_case_no(st.session_state.triage_records, _tmp_dt)
         m_case_no = st.selectbox("No.", list(range(1,16)), index=_next-1, key="m_case_no_inp")
         recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
