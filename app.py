@@ -100,64 +100,6 @@ def get_shift_identity(dt_str):
     except Exception:
         return "?", "夜勤"
 
-# ===== 勤務帯に基づく自動ゴミ箱移動 =====
-# 日勤(8:30-16:30)に登録 → 翌日08:00（夜勤終了09:30の90分前）に移動
-# 夜勤(それ以外)に登録   → 翌日16:00（日勤終了17:30の90分前）に移動
-def _jst_now():
-    from datetime import datetime as _dt2, timezone as _tz2, timedelta as _td2
-    return _dt2.now(_tz2(_td2(hours=9))).replace(tzinfo=None)
-
-def auto_trash_deadline(dt):
-    """登録日時(naive JST)から自動移動の期限を返す"""
-    from datetime import datetime as _dt2, timedelta as _td2
-    mins = dt.hour * 60 + dt.minute
-    if 8 * 60 + 30 <= mins < 16 * 60 + 30:          # 日勤
-        d = dt.date() + _td2(days=1)
-        return _dt2(d.year, d.month, d.day, 8, 0)
-    # 夜勤（00:00-08:30 は前日始まりの夜勤）
-    d = dt.date() - _td2(days=1) if mins < 8 * 60 + 30 else dt.date()
-    e = d + _td2(days=1)
-    return _dt2(e.year, e.month, e.day, 16, 0)
-
-def _infer_saved_at(rec):
-    """saved_at が無い旧レコードの登録日時を dt_str から推定する"""
-    from datetime import datetime as _dt2
-    try:
-        dt_str = rec.get("data", {}).get("dt_str", "")
-        h, m = _extract_time(dt_str)
-        shift_date, _ = get_shift_identity(dt_str)
-        mo, dy = map(int, shift_date.split("/"))
-        now = _jst_now()
-        year = now.year
-        cand = _dt2(year, mo, dy, h, m)
-        # 未来日になる場合は前年扱い（年末年始対策）
-        if (cand - now).days > 30:
-            cand = _dt2(year - 1, mo, dy, h, m)
-        return cand
-    except Exception:
-        return _jst_now()
-
-def auto_trash_expired_records(records):
-    """期限を過ぎたレコードをゴミ箱へ移動。移動があれば True"""
-    from datetime import datetime as _dt2
-    now = _jst_now()
-    expired = {}
-    for k, v in list(records.items()):
-        sa = v.get("saved_at")
-        try:
-            dt = _dt2.fromisoformat(sa) if sa else _infer_saved_at(v)
-        except Exception:
-            dt = _infer_saved_at(v)
-        if now >= auto_trash_deadline(dt):
-            expired[k] = v
-    if not expired:
-        return False
-    move_to_trash(expired)
-    for k in expired:
-        records.pop(k, None)
-    save_records(records)
-    return True
-
 def auto_case_no(records, dt_str):
     """同一勤務帯（shift_date + shift_type）内の次のNo.を返す"""
     target_date, target_shift = get_shift_identity(dt_str)
@@ -554,133 +496,6 @@ def parse_qr(raw):
         "items": items,
     }
 
-def parse_text(text):
-    """救急隊システムの「コピー」テキストを parse_qr と同じ形式の dict に変換する。
-
-    生年月日はテキストに含まれないため birth_y/m/d は空になる（年齢は取得可）。
-    """
-    import re as _re
-    from datetime import datetime as _dt
-
-    raw = text.replace("\r\n", "\n").replace("\r", "\n")
-
-    # --- ＜見出し＞ でセクション分割 ---
-    sec, cur = {}, "_head"
-    sec[cur] = []
-    for line in raw.split("\n"):
-        m = _re.match(r"^\s*[＜<]\s*(.+?)\s*[＞>]\s*$", line)
-        if m:
-            cur = m.group(1)
-            sec.setdefault(cur, [])
-        else:
-            sec.setdefault(cur, []).append(line)
-
-    def block(*names):
-        for n in names:
-            if n in sec:
-                v = "\n".join(sec[n]).strip()
-                if v:
-                    return v
-        return ""
-
-    head = block("救急搬送", "_head")
-
-    # --- 隊名 / 年齢 / 性別 ---
-    team_name, age, gender = "", "", ""
-    m = _re.search(r"^\s*(\S+?)\s+(\d+)\s*歳\s*(男性|女性)", head, _re.M)
-    if m:
-        team_raw, age, sex_jp = m.group(1), m.group(2), m.group(3)
-        team_name = _re.sub(r"\d+$", "", team_raw.replace("救急", "")).strip()
-        gender = "1" if sex_jp == "男性" else "2"
-    else:
-        m = _re.search(r"(\d+)\s*歳", head)
-        if m:
-            age = m.group(1)
-        if "女性" in head:
-            gender = "2"
-        elif "男性" in head:
-            gender = "1"
-
-    # --- 氏名（カナ） ---
-    kanji, kana = "", ""
-    m = _re.search(r"^\s*([^（(\n]+?)\s*[（(]\s*([^）)\n]*?)\s*[）)]", head, _re.M)
-    if m:
-        kanji, kana = m.group(1).strip(), m.group(2).strip()
-    else:
-        for line in head.split("\n"):
-            s = line.strip()
-            if s and not _re.search(r"\d+\s*歳", s):
-                kanji = s
-                break
-
-    # --- 主訴 / 現病歴 / 既往歴 ---
-    complaint = block("主訴").replace("\n", " ").strip()
-    history = block("現病歴")
-    past = block("既往歴")
-    if past:
-        history = (history + "\n既往歴：" + past.replace("\n", " ")).strip()
-    if not complaint and history:
-        for sep in ["。", "、", "\n"]:
-            if sep in history:
-                complaint = history.split(sep)[0]
-                break
-
-    vital = block("バイタル")
-
-    def find(pat, src=None, grp=1):
-        m = _re.search(pat, src if src is not None else vital)
-        return m.group(grp).strip() if m else ""
-
-    jcs   = find(r"JCS\s*([0-9IiVvXx\-]+)")
-    bp_s  = find(r"血圧\s*(\d+)\s*/")
-    bp_d  = find(r"血圧\s*\d+\s*/\s*(\d+)")
-    hr    = find(r"脈拍\s*(\d+)")
-    rr    = find(r"呼吸\s*(\d+)")
-    bt    = find(r"BT\s*([\d.]+)")
-    spo2_before = find(r"SPO2\s*(\d+)", None)
-    if not spo2_before:
-        spo2_before = find(r"SpO2\s*(\d+)")
-
-    # 「→3L酸素投与後 98%」形式
-    o2_flow = find(r"→\s*(\d+(?:\.\d+)?)\s*L")
-    spo2_after = find(r"酸素投与後\s*(\d+)\s*%")
-
-    # --- タイムスタンプ ---
-    ts = block("メッセージ作成タイムスタンプ") or raw
-    dt_str = ""
-    m = _re.search(r"(\d{4})/(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})", ts)
-    if m:
-        try:
-            dt = _dt(*[int(g) for g in m.groups()])
-            wd = ["月", "火", "水", "木", "金", "土", "日"][dt.weekday()]
-            dt_str = f"{dt.month}/{dt.day}（{wd}）{dt.hour:02d}:{dt.minute:02d}"
-        except Exception:
-            dt_str = m.group(0)
-
-    return {
-        "kanji": kanji,
-        "kana": kana,
-        "dt_str": dt_str,
-        "birth_y": "", "birth_m": "", "birth_d": "",   # テキストには生年月日が無い
-        "age": age,
-        "gender": gender,
-        "complaint": complaint,
-        "history": history,
-        "jcs": jcs,
-        "o2_flow": o2_flow,
-        "o2_device": "",
-        "bp_s": bp_s,
-        "bp_d": bp_d,
-        "hr": hr,
-        "rr": rr,
-        "bt": bt,
-        "spo2": spo2_after or spo2_before,
-        "spo2_before": spo2_before,
-        "team_name": team_name,
-        "items": [],
-    }
-
-
 # ===== テンプレート描画 =====
 
 def add_margin_to_image(pil_img, margin_mm=10):
@@ -698,48 +513,6 @@ def add_margin_to_image(pil_img, margin_mm=10):
     x = (A4_W - nw)//2; y = (A4_H - nh)//2
     canvas.paste(pil_img.resize((nw,nh), PILImg.LANCZOS), (x,y))
     return canvas
-
-def make_multi_print_widget(imgs_bytes, key="multi", label=None):
-    """複数枚の台帳画像をまとめて印刷するボタン（A4・1枚1ページ）"""
-    import base64 as _b64m
-    if not imgs_bytes:
-        return ""
-    pages_b64 = [_b64m.b64encode(b).decode() for b in imgs_bytes]
-    pages_json = "[" + ",".join([f'"{p}"' for p in pages_b64]) + "]"
-    if label is None:
-        label = f"🖨️ 台帳を印刷（{len(imgs_bytes)}枚）"
-    return f"""<!DOCTYPE html><html><head><style>
-@page{{size:A4;margin:0}}
-body{{margin:0;padding:0;background:transparent;font-family:sans-serif}}
-@media screen{{
-.btn{{display:block;width:100%;height:38px;padding:0 14px;box-sizing:border-box;
-  background:transparent;color:inherit;border:1px solid rgba(49,51,63,0.2);
-  border-radius:4px;font-size:0.875rem;cursor:pointer}}
-.btn:hover{{border-color:#f63366;color:#f63366}}
-@media(prefers-color-scheme:dark){{.btn{{border-color:rgba(250,250,250,0.2);color:#fff}}}}
-.imgs{{display:none}}
-}}
-@media print{{
-.btn{{display:none}}
-.imgs{{display:block}}
-.page{{page-break-after:always;width:100%;height:100vh;overflow:hidden}}
-.page:last-child{{page-break-after:avoid}}
-img{{width:100%;height:auto;max-height:100vh;display:block}}
-}}
-</style></head><body>
-<div class="imgs" id="c_{key}"></div>
-<button class="btn" onclick="window.print()">{label}</button>
-<script>
-var pages_{key}={pages_json};
-var c_{key}=document.getElementById('c_{key}');
-pages_{key}.forEach(function(b64){{
-  var div=document.createElement('div');div.className='page';
-  var img=document.createElement('img');
-  img.src='data:image/jpeg;base64,'+b64;
-  div.appendChild(img);c_{key}.appendChild(div);
-}});
-</script>
-</body></html>"""
 
 def make_print_widget(pil_img, key="print"):
     """印刷ボタン：クリックするとiframe内で画像を表示しwindow.print()を実行"""
@@ -1039,8 +812,6 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
 if "triage_records" not in st.session_state:
     st.session_state.triage_records = load_records()
     purge_expired_trash()  # 起動時に24時間経過分を完全削除
-    if auto_trash_expired_records(st.session_state.triage_records):
-        st.toast("勤務時間の経過した患者をゴミ箱に移動しました")
 if "triage_raw" not in st.session_state:
     st.session_state.triage_raw = None
 if "uploader_key" not in st.session_state:
@@ -1057,75 +828,71 @@ st.subheader("🆕 新規患者")
 if "manual_mode" not in st.session_state:
     st.session_state.manual_mode = False
 if "input_mode" not in st.session_state:
-    st.session_state.input_mode = None  # None, "qr", "text", "manual"
+    st.session_state.input_mode = None  # None, "qr", "manual"
 
-col_qr, col_text, col_manual = st.columns(3)
-with col_text:
-    if st.button("📋 テキスト貼り付け", use_container_width=True,
-                 type="primary" if st.session_state.input_mode == "text" else "secondary"):
-        st.session_state.input_mode = "text"
-        st.session_state.manual_mode = False
-        st.session_state.triage_raw = None
-        st.session_state.uploaded_bytes = None
-        st.rerun()
+col_qr, col_manual = st.columns(2)
 with col_qr:
     if st.button("📷 QRコード読み取り", use_container_width=True,
                  type="primary" if st.session_state.input_mode == "qr" else "secondary"):
         st.session_state.input_mode = "qr"
         st.session_state.manual_mode = False
-        st.session_state.pop("triage_text_input", None)
         st.rerun()
 with col_manual:
     if st.button("✍️ 手入力", use_container_width=True,
                  type="primary" if st.session_state.input_mode == "manual" else "secondary"):
         st.session_state.input_mode = "manual"
         st.session_state.manual_mode = True
-        st.session_state.pop("triage_text_input", None)
         st.session_state.triage_raw = None
         st.session_state.uploaded_bytes = None
         st.rerun()
 
 # ===== 手入力モード =====
 if st.session_state.manual_mode:
-    from datetime import datetime as dt2
+    from datetime import datetime as dt2, date as _date2
     jst = __import__('datetime').timezone(__import__('datetime').timedelta(hours=9))
     now_jst = dt2.now(jst)
 
-    # --- 患者基本情報 ---
+    # 和暦→西暦変換ヘルパー
+    WAREKI = [
+        ("令和", 2019), ("平成", 1989), ("昭和", 1926), ("大正", 1912), ("明治", 1868)
+    ]
+    def wareki_to_seireki(era_name, year_in_era):
+        for name, base in WAREKI:
+            if era_name == name:
+                return base + year_in_era - 1
+        return None
+
+    def calc_age(birth_y, birth_m, birth_d, ref_date):
+        try:
+            bd = _date2(birth_y, birth_m, birth_d)
+            age = ref_date.year - bd.year
+            if (ref_date.month, ref_date.day) < (bd.month, bd.day):
+                age -= 1
+            return max(0, age)
+        except Exception:
+            return 0
+
+    # 下書き復元メッセージ
+    if st.session_state.get("m_kanji") or st.session_state.get("m_kana") or st.session_state.get("m_complaint"):
+        st.info("📝 入力途中のデータが保持されています")
+
+    # --- No.・記載者・受付日時 ---
     mc1, mc2 = st.columns(2)
     with mc1:
         from datetime import timezone as _tz, timedelta as _td
-        _now_manual = datetime.now(_tz(_td(hours=9)))
-        _tmp_dt = f"{_now_manual.month}/{_now_manual.day}（）{_now_manual.hour:02d}:{_now_manual.minute:02d}"
+        _jst_now = datetime.now(_tz(_td(hours=9)))
+        _tmp_dt = f"{_jst_now.month}/{_jst_now.day}（）{_jst_now.hour:02d}:{_jst_now.minute:02d}"
         _next = auto_case_no(st.session_state.triage_records, _tmp_dt)
         m_case_no = st.selectbox("No.", list(range(1,16)), index=_next-1, key="m_case_no_inp")
         recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
         _def_rec = get_default_recorder()
         rec_idx = recorders.index(_def_rec) if _def_rec in recorders else 0
         m_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="m_recorder")
-        m_kanji = st.text_input("患者氏名（漢字）", placeholder="山田 太郎")
-        m_kana  = st.text_input("患者氏名（カナ）", placeholder="ヤマダ タロウ")
-        m_age   = st.number_input("年齢（才）", min_value=0, max_value=120, value=0, step=1)
-        m_gender = st.radio("性別", ["1（男）","2（女）","未記載"], horizontal=True)
     with mc2:
         m_date = st.date_input("受付日", value=now_jst.date(), key="m_date")
         m_time = st.time_input("受付時刻", value=now_jst.replace(minute=(now_jst.minute//5)*5, second=0, microsecond=0).time(), key="m_time")
-        m_birth_y = st.number_input("生年（西暦）", min_value=1900, max_value=2026, value=1950, step=1)
-        mc_b1, mc_b2 = st.columns(2)
-        with mc_b1: m_birth_m = st.number_input("月", min_value=1, max_value=12, value=1, step=1)
-        with mc_b2: m_birth_d = st.number_input("日", min_value=1, max_value=31, value=1, step=1)
 
-    m_complaint = st.text_input("主訴", placeholder="胸痛、呼吸困難")
-    m_history   = st.text_area("経過等", height=60, placeholder="発症経緯など")
-    mc3,mc4,mc5,mc6,mc7 = st.columns(5)
-    with mc3: m_jcs  = st.text_input("JCS", value="0")
-    with mc4: m_bp   = st.text_input("BP(上/下)", placeholder="120/80")
-    with mc5: m_hr   = st.text_input("HR", placeholder="80")
-    with mc6: m_rr   = st.text_input("RR", placeholder="16")
-    with mc7: m_spo2 = st.text_input("SpO2", placeholder="98")
-    m_bt = st.text_input("体温（BT）", placeholder="36.5")
-
-    # --- 救急隊・台帳情報 ---
+    # --- 依頼元救急隊・受診歴（受付時刻の後、患者氏名の前）---
     RESCUE_TEAMS_M = ["","警防","中央","大通","山鼻","豊水","幌西","北","北エルム","あいの里",
         "篠路","新光","東","東モエレ","栄","札苗","苗穂","白石","南郷","菊水",
         "北郷","厚別","厚別西","豊平","月寒","平岸","西岡","清田","北野","南",
@@ -1134,16 +901,58 @@ if st.session_state.manual_mode:
     with mc_a:
         m_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_M, key="m_team_sel")
         if m_team_sel == "その他":
-            m_team = st.text_input("救急隊名を直接入力",
-                                   key="m_team_free", placeholder="例: 石狩、恵庭")
+            m_team = st.text_input("救急隊名を直接入力", key="m_team_free", placeholder="例: 石狩、恵庭")
         else:
             m_team = m_team_sel
+        m_decision = st.radio("判定", ["応需","不応需"], horizontal=True, key="m_decision")
     with mc_b:
         m_history_yn = st.radio("受診歴", ["無","有"], horizontal=True, key="m_hist_yn")
         m_history_dept = ""
         if m_history_yn == "有":
             m_history_dept = st.text_input("受診科名", key="m_hist_dept")
-        m_decision = st.radio("判定", ["応需","不応需"], horizontal=True, key="m_decision")
+
+    # --- 患者氏名・年齢・性別・生年月日 ---
+    mn1, mn2 = st.columns(2)
+    with mn1:
+        m_kanji = st.text_input("患者氏名（漢字）", placeholder="山田 太郎", key="m_kanji")
+        m_kana  = st.text_input("患者氏名（カナ）", placeholder="ヤマダ タロウ", key="m_kana")
+        m_gender = st.radio("性別", ["1（男）","2（女）","未記載"], horizontal=True, key="m_gender")
+    with mn2:
+        # 生年月日（和暦・西暦対応）
+        st.markdown("**生年月日**")
+        _era_mode = st.radio("入力方式", ["西暦","和暦"], horizontal=True, key="m_era_mode")
+        mb1, mb2, mb3 = st.columns(3)
+        if _era_mode == "和暦":
+            with mb1:
+                _era_sel = st.selectbox("元号", ["令和","平成","昭和","大正","明治"], key="m_era")
+                _era_year = st.number_input("年", min_value=1, max_value=99, value=1, step=1, key="m_era_year")
+            _seireki = wareki_to_seireki(_era_sel, _era_year)
+            m_birth_y = _seireki if _seireki else 2000
+            st.caption(f"西暦 {m_birth_y} 年")
+        else:
+            with mb1:
+                m_birth_y = st.number_input("年（西暦）", min_value=1900, max_value=2026, value=1950, step=1, key="m_birth_y")
+        with mb2:
+            m_birth_m = st.number_input("月", min_value=1, max_value=12, value=1, step=1, key="m_birth_m")
+        with mb3:
+            m_birth_d = st.number_input("日", min_value=1, max_value=31, value=1, step=1, key="m_birth_d")
+        # 年齢自動計算
+        _ref_date = m_date if isinstance(m_date, _date2) else now_jst.date()
+        _auto_age = calc_age(m_birth_y, m_birth_m, m_birth_d, _ref_date)
+        m_age = st.number_input("年齢（才）", min_value=0, max_value=120,
+                                value=_auto_age, step=1, key="m_age")
+        if _auto_age > 0:
+            st.caption(f"生年月日から自動計算: {_auto_age}歳")
+
+    m_complaint = st.text_input("主訴", placeholder="胸痛、呼吸困難", key="m_complaint")
+    m_history   = st.text_area("経過等", height=60, placeholder="発症経緯など", key="m_history")
+    mc3,mc4,mc5,mc6,mc7 = st.columns(5)
+    with mc3: m_jcs  = st.text_input("JCS", value="0", key="m_jcs")
+    with mc4: m_bp   = st.text_input("BP(上/下)", placeholder="120/80", key="m_bp")
+    with mc5: m_hr   = st.text_input("HR", placeholder="80", key="m_hr")
+    with mc6: m_rr   = st.text_input("RR", placeholder="16", key="m_rr")
+    with mc7: m_spo2 = st.text_input("SpO2", placeholder="98", key="m_spo2")
+    m_bt = st.text_input("体温（BT）", placeholder="36.5", key="m_bt")
 
     m_free_note = st.text_area("自由記載", height=80, key="m_free_note")
 
@@ -1187,7 +996,7 @@ if st.session_state.manual_mode:
             "team_name": m_team, "items": [],
         }
 
-    ms1, ms2 = st.columns(2)
+    ms1, ms2, ms3 = st.columns(3)
     with ms1:
         if st.button("💾 患者データを保存", use_container_width=True, key="m_save"):
             data = _build_manual_data()
@@ -1195,7 +1004,6 @@ if st.session_state.manual_mode:
             key = data["kanji"] or data["kana"] or "不明"
             st.session_state.triage_records[key] = {
                 "data": data, "shift": shift, "case_no": m_case_no,
-                "saved_at": _jst_now().isoformat(timespec="seconds"),
                 "recorder": m_recorder, "origin": m_team,
                 "history_yn": m_history_yn, "history_dept": m_history_dept,
                 "decision": m_decision, "res": m_res, "free_note": m_free_note,
@@ -1203,8 +1011,11 @@ if st.session_state.manual_mode:
             save_records(st.session_state.triage_records)
             st.session_state.last_recorder = m_recorder
             st.session_state.manual_mode = False
-            st.session_state.pop("triage_text_input", None)
             st.session_state.input_mode = None
+            # 下書きをクリア
+            for _dk in ["m_kanji","m_kana","m_complaint","m_history","m_jcs",
+                        "m_bp","m_hr","m_rr","m_spo2","m_bt","m_free_note"]:
+                st.session_state.pop(_dk, None)
             st.success(f"✅ {key} を保存しました。")
             st.rerun()
     with ms2:
@@ -1217,28 +1028,16 @@ if st.session_state.manual_mode:
             buf = io.BytesIO()
             result.save(buf, format="JPEG", quality=95)
             components.html(make_print_widget(result, "m_print"), height=38)
-
-# ===== QRコードモード =====
-_data_ready = None
-
-# ===== テキスト貼り付けモード =====
-if st.session_state.input_mode == "text":
-    st.caption("救急隊システムの「コピー」で取得したテキストを貼り付けてください（貼り付け後、枠外をタップすると自動で解析されます）")
-    _txt = st.text_area("搬送情報テキスト", height=180, key="triage_text_input",
-                        placeholder="＜救急搬送＞\n中央５救急 49歳 男性\n...")
-
-    if _txt.strip():
-        _parsed = parse_text(_txt)
-        if _parsed.get("kanji") or _parsed.get("age"):
-            _data_ready = _parsed
-        else:
-            st.warning("⚠️ 解析できた項目がほとんどありません。書式をご確認ください。")
-
-    if _txt:
-        if st.button("🗑️ クリア", use_container_width=True, key="triage_text_clear"):
-            st.session_state.pop("triage_text_input", None)
+    with ms3:
+        if st.button("❌ キャンセル", use_container_width=True, key="m_cancel"):
+            for _dk in ["m_kanji","m_kana","m_complaint","m_history","m_jcs",
+                        "m_bp","m_hr","m_rr","m_spo2","m_bt","m_free_note"]:
+                st.session_state.pop(_dk, None)
+            st.session_state.manual_mode = False
+            st.session_state.input_mode = None
             st.rerun()
 
+# ===== QRコードモード =====
 if st.session_state.input_mode == "qr":
 
     _qc1, _qc2 = st.columns(2)
@@ -1317,95 +1116,90 @@ if st.session_state.input_mode == "qr":
         raw = st.session_state.triage_raw
 
         if raw:
-            _data_ready = parse_qr(raw)
-
-if _data_ready is not None:
-    data = _data_ready
-    shift = detect_shift(data["dt_str"])
-    kanji = data.get("kanji","")
-    birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
-    dob = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else ""
-    age = data.get("age","")
-    age_str = f"{age}歳" if age else ""
-    info_parts = [p for p in [kanji, dob, age_str] if p]
-    if info_parts:
-        st.markdown(f"**患者:** {'　'.join(info_parts)}")
+            data = parse_qr(raw)
+            shift = detect_shift(data["dt_str"])
+            kanji = data.get("kanji","")
+            birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
+            dob = f"{birth_y}年{birth_m}月{birth_d}日" if birth_y else ""
+            age = data.get("age","")
+            age_str = f"{age}歳" if age else ""
+            info_parts = [p for p in [kanji, dob, age_str] if p]
+            if info_parts:
+                st.markdown(f"**患者:** {'　'.join(info_parts)}")
 
 
-    st.subheader("台帳情報の入力")
-    col1, col2 = st.columns(2)
-    with col1:
-        next_no = auto_case_no(st.session_state.triage_records, data["dt_str"])
-        case_no = st.selectbox("No.", list(range(1, 16)), index=next_no-1)
-        recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
-        _def_rec_qr = get_default_recorder(data["dt_str"])
-        rec_idx = recorders.index(_def_rec_qr) if _def_rec_qr in recorders else 0
-        recorder = st.selectbox("記載者", recorders, index=rec_idx)
-        origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
-        history_yn = st.radio("受診歴", ["無", "有"], horizontal=True, key="qr_hist_yn")
-        history_dept = ""
-        if history_yn == "有":
-            history_dept = st.text_input("受診科名", key="qr_hist_dept")
-    with col2:
-        decision = st.radio("判定", ["応需", "不応需"], horizontal=True)
+            st.subheader("台帳情報の入力")
+            col1, col2 = st.columns(2)
+            with col1:
+                next_no = auto_case_no(st.session_state.triage_records, data["dt_str"])
+                case_no = st.selectbox("No.", list(range(1, 16)), index=next_no-1)
+                recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
+                _def_rec_qr = get_default_recorder(data["dt_str"])
+                rec_idx = recorders.index(_def_rec_qr) if _def_rec_qr in recorders else 0
+                recorder = st.selectbox("記載者", recorders, index=rec_idx)
+                origin = st.text_input("依頼元（救急隊）", value=data.get("team_name", "中央"))
+                history_yn = st.radio("受診歴", ["無", "有"], horizontal=True, key="qr_hist_yn")
+                history_dept = ""
+                if history_yn == "有":
+                    history_dept = st.text_input("受診科名", key="qr_hist_dept")
+            with col2:
+                decision = st.radio("判定", ["応需", "不応需"], horizontal=True)
 
-    complaint_edit = st.text_input("主訴（編集可）", value=data["complaint"])
-    data["complaint"] = complaint_edit
-    free_note = st.text_area("自由記載", placeholder="自由記載欄へのコメントを入力", height=80)
+            complaint_edit = st.text_input("主訴（編集可）", value=data["complaint"])
+            data["complaint"] = complaint_edit
+            free_note = st.text_area("自由記載", placeholder="自由記載欄へのコメントを入力", height=80)
 
-    res = {"decision": decision}
-    if decision == "応需":
-        res["init"] = st.selectbox("初期対応した科", ["当直医", "救急科", "その他"])
-        if res["init"] == "その他":
-            res["init_other"] = st.text_input("初期対応科名")
-        res["out"] = st.selectbox("最終転帰", ["（後で入力）", "入院", "帰宅", "その他"])
-        if res["out"] == "入院":
-            res["ward"] = st.selectbox("病棟", ["（後で入力）", "4東", "6東", "HCU", "ICU", "その他"])
-            if res["ward"] == "その他":
-                res["ward_other"] = st.text_input("病棟名")
-            res["main"] = st.selectbox("主科", ["（後で入力）", "臨研", "救急科", "その他"])
-            if res["main"] == "その他":
-                res["main_other"] = st.text_input("主科名")
-    else:
-        res["reason"] = st.selectbox("不応需理由", [
-            "1. 緊急性なし", "2. ベッド満床", "3. 既定の応需不可",
-            "4. 対応可能な医師不在", "5. 緊急手術制限中",
-            "6-A. 医師処置中", "6-B. 看護師処置中", "7. その他",
-        ])
-        if res["reason"].startswith("2."):
-            res["bed_sub"] = st.radio("ベッド満床の場所",
-                ["救急外来", "HCU", "4東", "その他"], horizontal=True)
-        if any(res["reason"].startswith(p) for p in ["3.", "4.", "5.", "6-A.", "6-B."]):
-            res["reason_comment"] = st.text_input("コメント（理由の右欄）")
+            res = {"decision": decision}
+            if decision == "応需":
+                res["init"] = st.selectbox("初期対応した科", ["当直医", "救急科", "その他"])
+                if res["init"] == "その他":
+                    res["init_other"] = st.text_input("初期対応科名")
+                res["out"] = st.selectbox("最終転帰", ["（後で入力）", "入院", "帰宅", "その他"])
+                if res["out"] == "入院":
+                    res["ward"] = st.selectbox("病棟", ["（後で入力）", "4東", "6東", "HCU", "ICU", "その他"])
+                    if res["ward"] == "その他":
+                        res["ward_other"] = st.text_input("病棟名")
+                    res["main"] = st.selectbox("主科", ["（後で入力）", "臨研", "救急科", "その他"])
+                    if res["main"] == "その他":
+                        res["main_other"] = st.text_input("主科名")
+            else:
+                res["reason"] = st.selectbox("不応需理由", [
+                    "1. 緊急性なし", "2. ベッド満床", "3. 既定の応需不可",
+                    "4. 対応可能な医師不在", "5. 緊急手術制限中",
+                    "6-A. 医師処置中", "6-B. 看護師処置中", "7. その他",
+                ])
+                if res["reason"].startswith("2."):
+                    res["bed_sub"] = st.radio("ベッド満床の場所",
+                        ["救急外来", "HCU", "4東", "その他"], horizontal=True)
+                if any(res["reason"].startswith(p) for p in ["3.", "4.", "5.", "6-A.", "6-B."]):
+                    res["reason_comment"] = st.text_input("コメント（理由の右欄）")
 
-    col_save, col_gen = st.columns(2)
-    with col_save:
-        if st.button("💾 患者データを保存（転帰は後で入力）", use_container_width=True):
-            key = data["kanji"] or data["kana"] or "不明"
-            st.session_state.triage_records[key] = {
-                "data": data, "shift": shift, "case_no": case_no,
-                "saved_at": _jst_now().isoformat(timespec="seconds"),
-                "recorder": recorder, "origin": origin,
-                "history_yn": history_yn, "history_dept": history_dept,
-                "decision": decision, "res": res, "free_note": free_note,
-            }
-            save_records(st.session_state.triage_records)
-            st.session_state.last_recorder = recorder
-            st.session_state.triage_raw = None
-            st.session_state.uploader_key += 1
-            st.session_state.uploaded_bytes = None
-            st.session_state.pop("triage_text_input", None)
-            st.session_state.input_mode = None
-            st.success(f"✅ {key}（{shift}）のデータを保存しました。")
-            st.rerun()
-    with col_gen:
-        if st.button("🖨️ 今すぐ台帳を生成", type="primary", use_container_width=True):
-            result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
-                                   decision, res, case_no, free_note)
-            st.image(result, use_container_width=True)
-            buf = io.BytesIO()
-            result.save(buf, format="JPEG", quality=95)
-            components.html(make_print_widget(result, "qr_print"), height=38)
+            col_save, col_gen = st.columns(2)
+            with col_save:
+                if st.button("💾 患者データを保存（転帰は後で入力）", use_container_width=True):
+                    key = data["kanji"] or data["kana"] or "不明"
+                    st.session_state.triage_records[key] = {
+                        "data": data, "shift": shift, "case_no": case_no,
+                        "recorder": recorder, "origin": origin,
+                        "history_yn": history_yn, "history_dept": history_dept,
+                        "decision": decision, "res": res, "free_note": free_note,
+                    }
+                    save_records(st.session_state.triage_records)
+                    st.session_state.last_recorder = recorder
+                    st.session_state.triage_raw = None
+                    st.session_state.uploader_key += 1
+                    st.session_state.uploaded_bytes = None
+                    st.session_state.input_mode = None
+                    st.success(f"✅ {key}（{shift}）のデータを保存しました。")
+                    st.rerun()
+            with col_gen:
+                if st.button("🖨️ 今すぐ台帳を生成", type="primary", use_container_width=True):
+                    result = render_triage(data, recorder, origin, shift, history_yn, history_dept,
+                                           decision, res, case_no, free_note)
+                    st.image(result, use_container_width=True)
+                    buf = io.BytesIO()
+                    result.save(buf, format="JPEG", quality=95)
+                    components.html(make_print_widget(result, "qr_print"), height=38)
 
 # ===== 編集モード =====
 records = st.session_state.triage_records  # 編集モードで必要
@@ -1662,29 +1456,46 @@ if records:
                     st.session_state.editing_key = None
                 st.rerun()
 
-    # 勤務帯ごとの印刷ボタン（上部）
+    # 台帳一括生成ボタン＋既存の印刷ボタン（上部）
     if st.session_state.get("bulk_images"):
-        _bulk_top = st.session_state.bulk_images
-        _groups_top = {}
-        for _it in _bulk_top:
-            _k = (_it[2], _it[3]) if len(_it) >= 4 else ("", "")
-            _groups_top.setdefault(_k, []).append(_it[1])
-
-        st.markdown("<div style='font-size:13px;font-weight:bold;color:#888;'>"
-                    "🖨️ 勤務帯ごとに印刷</div>", unsafe_allow_html=True)
-        for _gi, ((_sd, _ss), _imgs) in enumerate(sorted(_groups_top.items())):
-            _icon = "🌕" if _ss == "日勤" else "🌑"
-            _lbl = f"{_icon} {_sd} {_ss} を印刷（{len(_imgs)}枚）" if _sd \
-                   else f"{_icon} {_ss} を印刷（{len(_imgs)}枚）"
-            components.html(make_multi_print_widget(_imgs, f"g{_gi}", _lbl), height=46)
-
-        if len(_groups_top) > 1:
-            _all_top = [_it[1] for _it in _bulk_top]
-            components.html(
-                make_multi_print_widget(_all_top, "all",
-                                        f"🖨️ 全勤務帯をまとめて印刷（{len(_all_top)}枚）"),
-                height=46)
-        st.divider()
+        _all_imgs_bytes_top = [item[1] for item in st.session_state.bulk_images]
+        if _all_imgs_bytes_top:
+            import base64 as _b64t
+            _pages_b64_top = [_b64t.b64encode(_ib).decode() for _ib in _all_imgs_bytes_top]
+            _pages_json_top = "[" + ",".join([f'"{p}"' for p in _pages_b64_top]) + "]"
+            _print_top_html = f"""<!DOCTYPE html><html><head><style>
+@page{{size:A4;margin:0}}
+body{{margin:0;padding:0;background:transparent;font-family:sans-serif}}
+@media screen{{
+.btn{{display:block;width:100%;height:38px;padding:0 14px;box-sizing:border-box;
+  background:transparent;color:inherit;border:1px solid rgba(49,51,63,0.2);
+  border-radius:4px;font-size:0.875rem;cursor:pointer}}
+.btn:hover{{border-color:#f63366;color:#f63366}}
+@media(prefers-color-scheme:dark){{.btn{{border-color:rgba(250,250,250,0.2);color:#fff}}}}
+.imgs{{display:none}}
+}}
+@media print{{
+.btn{{display:none}}
+.imgs{{display:block}}
+.page{{page-break-after:always;width:100%;height:100vh;overflow:hidden}}
+.page:last-child{{page-break-after:avoid}}
+img{{width:100%;height:auto;max-height:100vh;display:block}}
+}}
+</style></head><body>
+<div class="imgs" id="ctop"></div>
+<button class="btn" onclick="window.print()">🖨️ 全台帳を印刷（{len(_all_imgs_bytes_top)}枚）</button>
+<script>
+var pages={_pages_json_top};
+var c=document.getElementById('ctop');
+pages.forEach(function(b64){{
+  var div=document.createElement('div');div.className='page';
+  var img=document.createElement('img');
+  img.src='data:image/jpeg;base64,'+b64;
+  div.appendChild(img);c.appendChild(div);
+}});
+</script>
+</body></html>"""
+            components.html(_print_top_html, height=46)
 
     if st.button("🖨️ 全患者の台帳を一括生成", type="primary", use_container_width=True):
         all_records = st.session_state.triage_records
@@ -1792,22 +1603,24 @@ if records:
                 k = get_shift_key(item)
                 groups.setdefault(k, []).append(item[1])  # img_bytes
 
-            for ci, ((sdate, sshift), imgs) in enumerate(sorted(groups.items())):
+            sorted_groups = sorted(groups.items())
+            if len(sorted_groups) > 1:
+                pdf_cols = st.columns(len(sorted_groups))
+            else:
+                pdf_cols = None
+
+            for ci, ((sdate, sshift), imgs) in enumerate(sorted_groups):
                 pdf_bytes_out = make_pdf(imgs)
-                icon  = "🌕" if sshift == "日勤" else "🌑"
                 label = f"{sdate} {sshift}" if sdate else sshift
                 fname = f"triage_{sdate.replace('/','')}_{sshift}_{date.today().strftime('%Y%m%d')}.pdf"
-                st.markdown(f"<div style='margin-top:8px;font-size:13px;font-weight:bold'>"
-                            f"{icon} {label}（{len(imgs)}件）</div>", unsafe_allow_html=True)
-                pc1, pc2 = st.columns(2)
-                with pc1:
-                    components.html(
-                        make_multi_print_widget(imgs, f"pg{ci}",
-                                                f"🖨️ この勤務帯を印刷（{len(imgs)}枚）"),
-                        height=46)
-                with pc2:
-                    st.download_button(f"📄 PDFで保存（{len(imgs)}件）",
-                                       pdf_bytes_out, fname, "application/pdf",
+                btn_label = f"📄 {label} PDF（{len(imgs)}件）"
+                if pdf_cols:
+                    with pdf_cols[ci]:
+                        st.download_button(btn_label, pdf_bytes_out, fname, "application/pdf",
+                                           use_container_width=True, type="primary",
+                                           key=f"pdf_{ci}")
+                else:
+                    st.download_button(btn_label, pdf_bytes_out, fname, "application/pdf",
                                        use_container_width=True, type="primary",
                                        key=f"pdf_{ci}")
         except Exception as e:
