@@ -995,7 +995,8 @@ if st.session_state.manual_mode:
         "藤野","定山渓","西","発寒","八軒","西野","手稲","前田","その他"]
     mc_a, mc_b = st.columns(2)
     with mc_a:
-        m_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_M, key="m_team_sel")
+        m_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_M,
+                                   key=f"m_team_sel_{m_date.isoformat()}")
         if m_team_sel == "その他":
             m_team = st.text_input("救急隊名を直接入力", key="m_team_free", placeholder="例: 石狩、恵庭")
         else:
