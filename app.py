@@ -828,14 +828,22 @@ st.subheader("🆕 新規患者")
 if "manual_mode" not in st.session_state:
     st.session_state.manual_mode = False
 if "input_mode" not in st.session_state:
-    st.session_state.input_mode = None  # None, "qr", "manual"
+    st.session_state.input_mode = None  # None, "qr", "text", "manual"
 
-col_qr, col_manual = st.columns(2)
+col_qr, col_text, col_manual = st.columns(3)
 with col_qr:
     if st.button("📷 QRコード読み取り", use_container_width=True,
                  type="primary" if st.session_state.input_mode == "qr" else "secondary"):
         st.session_state.input_mode = "qr"
         st.session_state.manual_mode = False
+        st.session_state.pop("triage_text_input", None)
+        st.rerun()
+with col_text:
+    if st.button("📋 テキスト貼り付け", use_container_width=True,
+                 type="primary" if st.session_state.input_mode == "text" else "secondary"):
+        st.session_state.input_mode = "text"
+        st.session_state.manual_mode = False
+        st.session_state.triage_raw = None
         st.rerun()
 with col_manual:
     if st.button("✍️ 手入力", use_container_width=True,
@@ -844,7 +852,95 @@ with col_manual:
         st.session_state.manual_mode = True
         st.session_state.triage_raw = None
         st.session_state.uploaded_bytes = None
+        st.session_state.pop("triage_text_input", None)
         st.rerun()
+
+# ===== テキスト貼り付けモード =====
+if st.session_state.input_mode == "text":
+    st.info("救急システムの「コピー」ボタンでコピーしたテキストを貼り付けてください。自動で解析します。")
+    _txt = st.text_area("患者情報テキスト", height=180, key="triage_text_input",
+                        placeholder="ここにテキストを貼り付け...")
+
+    def _parse_dispatch_text(txt):
+        """搬送テキストから患者情報を抽出してQRデータ形式に変換"""
+        import re as _re
+        data = {
+            "dt_str": "", "kana": "", "kanji": "", "age": "", "gender": "",
+            "complaint": "", "history": "", "jcs": "0",
+            "bp_s": "", "bp_d": "", "hr": "", "rr": "", "bt": "", "spo2": "",
+            "o2_flow": "", "o2_device": "", "spo2_before": "", "team_name": "",
+        }
+        if not txt:
+            return None
+
+        # 日時
+        dt_m = _re.search(r'(\d{1,2})[/／](\d{1,2})[^\d]*(\d{1,2}):(\d{2})', txt)
+        if dt_m:
+            mo, dy, hh, mm = dt_m.groups()
+            wd_list = ["月","火","水","木","金","土","日"]
+            try:
+                from datetime import date as _d2
+                _today = _d2.today()
+                _dt_date = _d2(_today.year, int(mo), int(dy))
+                wd = wd_list[_dt_date.weekday()]
+            except: wd = ""
+            data["dt_str"] = f"{mo}/{dy}（{wd}）{hh}:{mm}"
+
+        # 氏名（カナ）
+        kana_m = _re.search(r'([ァ-ヶー]{2,})\s*[\(（]', txt)
+        if kana_m: data["kana"] = kana_m.group(1)
+
+        # 氏名（漢字）
+        kanji_m = _re.search(r'氏名[：:]\s*([^\s\n（(]{2,8})', txt)
+        if kanji_m: data["kanji"] = kanji_m.group(1)
+
+        # 年齢・性別
+        age_m = _re.search(r'(\d{1,3})\s*[歳才]', txt)
+        if age_m: data["age"] = age_m.group(1)
+        if _re.search(r'男|♂|M\b', txt): data["gender"] = "1"
+        elif _re.search(r'女|♀|F\b', txt): data["gender"] = "2"
+
+        # 主訴
+        for pat in [r'主訴[：:]\s*([^\n]{2,40})', r'傷病名[：:]\s*([^\n]{2,40})']:
+            cm = _re.search(pat, txt)
+            if cm: data["complaint"] = cm.group(1).strip(); break
+
+        # バイタル
+        bp_m = _re.search(r'(?:BP|血圧)[：:\s]*(\d{2,3})[/／](\d{2,3})', txt)
+        if bp_m: data["bp_s"],data["bp_d"] = bp_m.group(1),bp_m.group(2)
+        hr_m = _re.search(r'(?:HR|脈拍|PR)[：:\s]*(\d{2,3})', txt)
+        if hr_m: data["hr"] = hr_m.group(1)
+        rr_m = _re.search(r'(?:RR|呼吸数)[：:\s]*(\d{1,3})', txt)
+        if rr_m: data["rr"] = rr_m.group(1)
+        bt_m = _re.search(r'(?:BT|体温)[：:\s]*(\d{2}[.,]\d)', txt)
+        if bt_m: data["bt"] = bt_m.group(1).replace(",",".")
+        spo2_m = _re.search(r'(?:SpO2|Sp02)[：:\s]*(\d{2,3})', txt)
+        if spo2_m: data["spo2"] = spo2_m.group(1)
+        jcs_m = _re.search(r'JCS[：:\s]*(\d{1,3})', txt)
+        if jcs_m: data["jcs"] = jcs_m.group(1)
+
+        # 救急隊
+        team_m = _re.search(r'([^\s]{2,6})救急隊', txt)
+        if team_m: data["team_name"] = team_m.group(1)
+
+        return data if (data["kana"] or data["kanji"] or data["complaint"] or data["dt_str"]) else None
+
+    if _txt:
+        _parsed = _parse_dispatch_text(_txt)
+        if _parsed:
+            st.success("✅ 解析成功。内容を確認して保存してください。")
+            # 解析結果をQRデータとしてセッションに保持
+            if st.session_state.get("_last_text_parsed") != _txt:
+                st.session_state._last_text_parsed = _txt
+                st.session_state.triage_raw = _parsed
+        else:
+            st.warning("⚠️ 自動解析できませんでした。手入力モードをお試しください。")
+
+        if st.button("🗑️ クリア", use_container_width=True, key="triage_text_clear"):
+            st.session_state.pop("triage_text_input", None)
+            st.session_state.pop("_last_text_parsed", None)
+            st.session_state.triage_raw = None
+            st.rerun()
 
 # ===== 手入力モード =====
 if st.session_state.manual_mode:
@@ -1038,7 +1134,7 @@ if st.session_state.manual_mode:
             st.rerun()
 
 # ===== QRコードモード =====
-if st.session_state.input_mode == "qr":
+if st.session_state.input_mode in ("qr", "text"):
 
     _qc1, _qc2 = st.columns(2)
     with _qc1:
