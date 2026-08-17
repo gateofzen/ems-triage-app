@@ -992,13 +992,13 @@ if st.session_state.manual_mode:
     RESCUE_TEAMS_M = ["","警防","中央","大通","山鼻","豊水","幌西","北","北エルム","あいの里",
         "篠路","新光","東","東モエレ","栄","札苗","苗穂","白石","南郷","菊水",
         "北郷","厚別","厚別西","豊平","月寒","平岸","西岡","清田","北野","南",
-        "藤野","定山渓","西","発寒","八軒","西野","手稲","前田","その他"]
+        "藤野","定山渓","西","発寒","八軒","西野","手稲","前田","その他（直接入力）"]
     mc_a, mc_b = st.columns(2)
     with mc_a:
-        m_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_M,
-                                   key=f"m_team_sel_{m_date.isoformat()}")
-        if m_team_sel == "その他":
-            m_team = st.text_input("救急隊名を直接入力", key="m_team_free", placeholder="例: 石狩、恵庭")
+        m_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_M, key="m_team_sel")
+        if m_team_sel == "その他（直接入力）":
+            m_team = st.text_input("救急隊名を入力", key="m_team_other",
+                                   placeholder="例: 石狩")
         else:
             m_team = m_team_sel
         m_decision = st.radio("判定", ["応需","不応需"], horizontal=True, key="m_decision")
@@ -1337,16 +1337,19 @@ if editing_key and editing_key in records:
         recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
         rec_idx = recorders.index(rec.get("recorder","前川")) if rec.get("recorder") in recorders else 0
         e_recorder = st.selectbox("記載者", recorders, index=rec_idx, key="ed_recorder")
-        RESCUE_TEAMS_E = ["","警防","中央","大通","山鼻","豊水","幌西","北","北エルム","あいの里",
+        RESCUE_TEAMS_E = ["","その他（直接入力）","警防","中央","大通","山鼻","豊水","幌西","北","北エルム","あいの里",
     "篠路","新光","東","東モエレ","栄","札苗","苗穂","白石","南郷","菊水",
     "北郷","厚別","厚別西","豊平","月寒","平岸","西岡","清田","北野","南",
     "藤野","定山渓","西","発寒","八軒","西野","手稲","前田"
 ]
         _orig = rec.get("origin","")
-        _eidx = RESCUE_TEAMS_E.index(_orig) if _orig in RESCUE_TEAMS_E else len(RESCUE_TEAMS_E)-1
+        # リストにない値（岩見沢等）は「その他（直接入力）」として扱う
+        _eidx = RESCUE_TEAMS_E.index(_orig) if _orig in RESCUE_TEAMS_E else 1
         e_team_sel = st.selectbox("依頼元救急隊", RESCUE_TEAMS_E, index=_eidx, key="ed_team")
         if e_team_sel == "その他（直接入力）":
-            e_origin = st.text_input("救急隊名", value=_orig if _orig not in RESCUE_TEAMS_E else "", key="ed_team_other")
+            # リストにない元の値があればそれを初期値に
+            _default_other = _orig if _orig and _orig not in RESCUE_TEAMS_E else ""
+            e_origin = st.text_input("救急隊名", value=_default_other, key="ed_team_other")
         else:
             e_origin = e_team_sel
         e_history_yn = st.radio("受診歴", ["無","有"],
