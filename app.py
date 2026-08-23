@@ -862,68 +862,95 @@ if st.session_state.input_mode == "text":
                         placeholder="ここにテキストを貼り付け...")
 
     def _parse_dispatch_text(txt):
-        """搬送テキストから患者情報を抽出してQRデータ形式に変換"""
+        """搬送テキストから患者情報を抽出。parse_qrと同じキー構造のdictを返す"""
         import re as _re
-        data = {
-            "dt_str": "", "kana": "", "kanji": "", "age": "", "gender": "",
-            "complaint": "", "history": "", "jcs": "0",
-            "bp_s": "", "bp_d": "", "hr": "", "rr": "", "bt": "", "spo2": "",
-            "o2_flow": "", "o2_device": "", "spo2_before": "", "team_name": "",
-        }
         if not txt:
             return None
+        data = {
+            "dt_str": "", "kanji": "", "kana": "",
+            "birth_y": "", "birth_m": "", "birth_d": "",
+            "age": "", "gender": "",
+            "complaint": "", "history": "", "jcs": "0",
+            "o2_flow": "", "o2_device": "",
+            "bp_s": "", "bp_d": "", "hr": "", "rr": "", "bt": "", "spo2": "",
+            "spo2_before": "", "team_name": "", "items": [],
+        }
 
-        # 日時
-        dt_m = _re.search(r'(\d{1,2})[/／](\d{1,2})[^\d]*(\d{1,2}):(\d{2})', txt)
+        # 日時（メッセージ作成タイムスタンプ形式：2026/08/23 19:04:09）
+        dt_m = _re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})', txt)
         if dt_m:
-            mo, dy, hh, mm = dt_m.groups()
+            _y, mo, dy, hh, mm = dt_m.groups()
             wd_list = ["月","火","水","木","金","土","日"]
             try:
                 from datetime import date as _d2
-                _today = _d2.today()
-                _dt_date = _d2(_today.year, int(mo), int(dy))
+                _dt_date = _d2(int(_y), int(mo), int(dy))
                 wd = wd_list[_dt_date.weekday()]
             except: wd = ""
-            data["dt_str"] = f"{mo}/{dy}（{wd}）{hh}:{mm}"
+            data["dt_str"] = f"{int(mo)}/{int(dy)}（{wd}）{hh}:{mm}"
 
-        # 氏名（カナ）
-        kana_m = _re.search(r'([ァ-ヶー]{2,})\s*[\(（]', txt)
-        if kana_m: data["kana"] = kana_m.group(1)
+        # 氏名（漢字　　（カナ）形式）
+        name_m = _re.search(r'([一-龥]{1,4}[　\s]+[一-龥]{1,6})\s*[（(]([ァ-ヶー\s　]+)[）)]', txt)
+        if name_m:
+            data["kanji"] = name_m.group(1).strip()
+            data["kana"] = name_m.group(2).strip()
 
-        # 氏名（漢字）
-        kanji_m = _re.search(r'氏名[：:]\s*([^\s\n（(]{2,8})', txt)
-        if kanji_m: data["kanji"] = kanji_m.group(1)
+        # 年齢・性別（62歳 女性 形式）
+        age_gender_m = _re.search(r'(\d{1,3})歳[\s　]+([男女])', txt)
+        if age_gender_m:
+            data["age"] = age_gender_m.group(1)
+            data["gender"] = "1" if age_gender_m.group(2) == "男" else "2"
+        else:
+            age_m = _re.search(r'(\d{1,3})\s*[歳才]', txt)
+            if age_m: data["age"] = age_m.group(1)
 
-        # 年齢・性別
-        age_m = _re.search(r'(\d{1,3})\s*[歳才]', txt)
-        if age_m: data["age"] = age_m.group(1)
-        if _re.search(r'男|♂|M\b', txt): data["gender"] = "1"
-        elif _re.search(r'女|♀|F\b', txt): data["gender"] = "2"
+        # 主訴（＜主訴＞の後）
+        cm = _re.search(r'＜主訴＞\s*\n(.+?)(?=\n＜|\n<)', txt, _re.DOTALL)
+        if cm: data["complaint"] = cm.group(1).strip()
 
-        # 主訴
-        for pat in [r'主訴[：:]\s*([^\n]{2,40})', r'傷病名[：:]\s*([^\n]{2,40})']:
-            cm = _re.search(pat, txt)
-            if cm: data["complaint"] = cm.group(1).strip(); break
+        # 現病歴（＜現病歴＞の後）
+        hm = _re.search(r'＜現病歴＞\s*\n(.+?)(?=\n＜|\n<)', txt, _re.DOTALL)
+        if hm: data["history"] = hm.group(1).strip()
 
-        # バイタル
-        bp_m = _re.search(r'(?:BP|血圧)[：:\s]*(\d{2,3})[/／](\d{2,3})', txt)
-        if bp_m: data["bp_s"],data["bp_d"] = bp_m.group(1),bp_m.group(2)
-        hr_m = _re.search(r'(?:HR|脈拍|PR)[：:\s]*(\d{2,3})', txt)
+        # 血圧
+        bp_m = _re.search(r'血圧\s*(\d{2,3})[/／](\d{2,3})', txt)
+        if bp_m: data["bp_s"], data["bp_d"] = bp_m.group(1), bp_m.group(2)
+        else:
+            bp_m = _re.search(r'BP\s*(\d{2,3})[/／](\d{2,3})', txt)
+            if bp_m: data["bp_s"], data["bp_d"] = bp_m.group(1), bp_m.group(2)
+
+        # 脈拍
+        hr_m = _re.search(r'(?:脈拍|HR|PR)\s*(\d{2,3})', txt)
         if hr_m: data["hr"] = hr_m.group(1)
-        rr_m = _re.search(r'(?:RR|呼吸数)[：:\s]*(\d{1,3})', txt)
+
+        # 呼吸
+        rr_m = _re.search(r'(?:呼吸|RR)\s*(\d{1,3})', txt)
         if rr_m: data["rr"] = rr_m.group(1)
-        bt_m = _re.search(r'(?:BT|体温)[：:\s]*(\d{2}[.,]\d)', txt)
-        if bt_m: data["bt"] = bt_m.group(1).replace(",",".")
-        spo2_m = _re.search(r'(?:SpO2|Sp02)[：:\s]*(\d{2,3})', txt)
-        if spo2_m: data["spo2"] = spo2_m.group(1)
-        jcs_m = _re.search(r'JCS[：:\s]*(\d{1,3})', txt)
+
+        # SpO2
+        spo2_m = _re.search(r'(?:SPO2|SpO2|Sp02|酸素飽和度)\s*(\d{2,3})', txt, _re.IGNORECASE)
+        if spo2_m:
+            data["spo2"] = spo2_m.group(1)
+            data["spo2_before"] = spo2_m.group(1)
+
+        # BT
+        bt_m = _re.search(r'(?:BT|体温|KT)\s*(\d{2}\.?\d)', txt)
+        if bt_m: data["bt"] = bt_m.group(1)
+
+        # JCS
+        jcs_m = _re.search(r'JCS\s*(\d+|[IVX\-]+)', txt)
         if jcs_m: data["jcs"] = jcs_m.group(1)
 
-        # 救急隊
-        team_m = _re.search(r'([^\s]{2,6})救急隊', txt)
+        # 酸素流量
+        o2f_m = _re.search(r'(\d{1,2})[Ll]酸素', txt)
+        if o2f_m: data["o2_flow"] = o2f_m.group(1)
+
+        # 救急隊（"平岸５救急" のような形式）
+        team_m = _re.search(r'([一-龥ぁ-んァ-ヶー]+?)[\d０-９]*救急', txt)
         if team_m: data["team_name"] = team_m.group(1)
 
-        return data if (data["kana"] or data["kanji"] or data["complaint"] or data["dt_str"]) else None
+        if any([data["kana"], data["kanji"], data["complaint"], data["dt_str"], data["age"]]):
+            return data
+        return None
 
     if _txt:
         _parsed = _parse_dispatch_text(_txt)
