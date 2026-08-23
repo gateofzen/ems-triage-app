@@ -1195,10 +1195,12 @@ if st.session_state.input_mode in ("qr", "text"):
 
     # セッションに保存済みのファイルを使う
     has_file = uploaded is not None or st.session_state.get("uploaded_bytes") is not None
+    # テキストモード: すでに解析済みならファイルなしでも表示ルートに入る
+    is_text_parsed = st.session_state.input_mode == "text" and st.session_state.triage_raw is not None
 
-    if has_file:
-        # まだ読み取っていない場合のみデコード実行
-        if st.session_state.triage_raw is None:
+    if has_file or is_text_parsed:
+        # QRモードでファイルがあるとき: デコード実行
+        if has_file and st.session_state.triage_raw is None:
             with st.spinner("QRコードを読み取り中..."):
                 if uploaded is not None:
                     raw = decode_qr(uploaded)
@@ -1213,7 +1215,11 @@ if st.session_state.input_mode in ("qr", "text"):
         raw = st.session_state.triage_raw
 
         if raw:
-            data = parse_qr(raw)
+            # テキストモードの解析結果は既にdict形式、QRはparse_qrでdict化
+            if isinstance(raw, dict):
+                data = raw
+            else:
+                data = parse_qr(raw)
             shift = detect_shift(data["dt_str"])
             kanji = data.get("kanji","")
             birth_y = data.get("birth_y",""); birth_m = data.get("birth_m",""); birth_d = data.get("birth_d","")
