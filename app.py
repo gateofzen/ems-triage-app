@@ -176,6 +176,78 @@ def move_to_trash(records_dict):
         trash[k] = {"record": v, "deleted_at": now_str}
     save_trash(trash)
 
+def auto_archive_records():
+    """現在のシフトと異なる患者を自動アーカイブ。勤務終了後2時間の猶予あり"""
+    from datetime import date as _dcls, timedelta as _tdcls, datetime as _dtcls, timezone as _tzcls
+    records = load_records()
+    if not records:
+        return
+    _now = _dtcls.now(_tzcls(_tdcls(hours=9)))
+    _now_min = _now.hour * 60 + _now.minute
+    _today = _now.date()
+
+    valid_keys = set()
+    if _now_min < 8*60+30:
+        valid_keys.add(((_today - _tdcls(days=1)).isoformat(), "夜勤"))
+    elif _now_min < 10*60+30:
+        valid_keys.add(((_today - _tdcls(days=1)).isoformat(), "夜勤"))
+        valid_keys.add((_today.isoformat(), "日勤"))
+    elif _now_min < 16*60+30:
+        valid_keys.add((_today.isoformat(), "日勤"))
+    elif _now_min < 18*60+30:
+        valid_keys.add((_today.isoformat(), "日勤"))
+        valid_keys.add((_today.isoformat(), "夜勤"))
+    else:
+        valid_keys.add((_today.isoformat(), "夜勤"))
+
+    def _rec_shift_key(rec):
+        """患者レコードから (シフト開始日ISO, シフト種別) を返す"""
+        try:
+            import re
+            dt_str = rec.get("data", {}).get("dt_str", "")
+            if not dt_str:
+                return None
+            h, m = _extract_time(dt_str)
+            minutes = h * 60 + m
+            shift = "日勤" if 8*60+30 <= minutes < 16*60+30 else "夜勤"
+            dm = re.search(r'(\d{1,4})[/／](\d{1,2})[/／]?(\d{0,2})', dt_str)
+            if not dm:
+                return None
+            g1, g2, g3 = dm.group(1), dm.group(2), dm.group(3)
+            if len(g1) == 4:
+                year, mo, d = int(g1), int(g2), int(g3) if g3 else 1
+            else:
+                year = _now.year
+                mo, d = int(g1), int(g2)
+                # 未来日付は前年扱い
+                try:
+                    if _dcls(year, mo, d) > _today + _tdcls(days=1):
+                        year -= 1
+                except: return None
+            try:
+                rec_date = _dcls(year, mo, d)
+            except ValueError:
+                return None
+            if shift == "夜勤" and minutes < 8*60+30:
+                rec_date = rec_date - _tdcls(days=1)
+            return (rec_date.isoformat(), shift)
+        except Exception:
+            return None
+
+    kept = {}
+    to_archive = {}
+    for k, rec in records.items():
+        key = _rec_shift_key(rec)
+        if key is None:
+            to_archive[k] = rec
+        elif key in valid_keys:
+            kept[k] = rec
+        else:
+            to_archive[k] = rec
+    if to_archive:
+        move_to_trash(to_archive)
+        save_records(kept)
+
 def purge_expired_trash():
     """24時間経過したゴミ箱データを完全削除"""
     from datetime import datetime as _dt, timezone as _tz, timedelta as _td
@@ -812,6 +884,8 @@ def render_triage(data, recorder, origin, shift, history_yn, history_dept, decis
 if "triage_records" not in st.session_state:
     st.session_state.triage_records = load_records()
     purge_expired_trash()  # 起動時に24時間経過分を完全削除
+    auto_archive_records()  # 過去シフトの患者を自動アーカイブ
+    st.session_state.triage_records = load_records()  # アーカイブ後の状態を再ロード
 if "triage_raw" not in st.session_state:
     st.session_state.triage_raw = None
 if "uploader_key" not in st.session_state:
