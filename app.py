@@ -100,6 +100,33 @@ def get_shift_identity(dt_str):
     except Exception:
         return "?", "夜勤"
 
+
+def _make_unique_key(data, records):
+    """患者を一意に識別するキーを生成。氏名+時刻を組み合わせる"""
+    kanji = data.get("kanji","").strip()
+    kana = data.get("kana","").strip()
+    dt = data.get("dt_str","").strip()
+    base = kanji or kana or "不明"
+    # 時刻を含めて一意化
+    if dt:
+        # "9/11（金）18:50" → "9-11-1850"
+        import re as _re
+        m = _re.search(r'(\d{1,2})[/／](\d{1,2}).*?(\d{1,2}):(\d{2})', dt)
+        if m:
+            suffix = f"_{m.group(1)}-{m.group(2)}-{m.group(3)}{m.group(4)}"
+            candidate = base + suffix
+        else:
+            candidate = base + "_" + dt
+    else:
+        candidate = base
+    # それでも衝突するなら連番付与
+    if candidate not in records:
+        return candidate
+    n = 2
+    while f"{candidate}_{n}" in records:
+        n += 1
+    return f"{candidate}_{n}"
+
 def auto_case_no(records, dt_str):
     """同一勤務帯（shift_date + shift_type）内の次のNo.を返す"""
     target_date, target_shift = get_shift_identity(dt_str)
@@ -950,8 +977,27 @@ if st.session_state.input_mode == "text":
             "spo2_before": "", "team_name": "", "items": [],
         }
 
-        # 日時（メッセージ作成タイムスタンプ形式：2026/08/23 19:04:09）
-        dt_m = _re.search(r'(\d{4})/(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})', txt)
+        # 日時: 「メッセージ作成タイムスタンプ」を最優先。ない場合は他のタイムスタンプを探す
+        # 「最終食事」「アレルギー」など他の日時と混同しないよう最後の日時を優先
+        dt_m = None
+        # 1. メッセージ作成タイムスタンプの直後の日時
+        ts_m = _re.search(r'メッセージ作成タイムスタンプ[^\d]*(\d{4})/(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})', txt)
+        if ts_m:
+            dt_m = ts_m
+        else:
+            # 2. 最終食事・アレルギー等の後の余分な日時を除外して、最後に出てくる日時を採用
+            all_matches = list(_re.finditer(r'(\d{4})/(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})', txt))
+            # 「最終食事：」の直後の日時は除外
+            _bad_positions = set()
+            for bad_m in _re.finditer(r'最終食事[：:]?\s*(\d{4})/(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{2})', txt):
+                _bad_positions.add(bad_m.start(1))
+            good_matches = [m for m in all_matches if m.start(1) not in _bad_positions]
+            if good_matches:
+                # 最後（末尾に近い方）を採用
+                dt_m = good_matches[-1]
+            elif all_matches:
+                dt_m = all_matches[-1]
+
         if dt_m:
             _y, mo, dy, hh, mm = dt_m.groups()
             wd_list = ["月","火","水","木","金","土","日"]
@@ -1029,17 +1075,46 @@ if st.session_state.input_mode == "text":
     if _txt:
         _parsed = _parse_dispatch_text(_txt)
         if _parsed:
-            st.success("✅ 解析成功。内容を確認して保存してください。")
-            # 解析結果をQRデータとしてセッションに保持
-            if st.session_state.get("_last_text_parsed") != _txt:
-                st.session_state._last_text_parsed = _txt
-                st.session_state.triage_raw = _parsed
+            # 常に最新のテキストで再解析（キャッシュ廃止）
+            st.session_state.triage_raw = _parsed
+            st.session_state._last_text_parsed = _txt
+
+            # 自動保存: テキスト貼り付け時点で「下書き」として即座に保存
+            _draft_hash = str(hash(_txt))
+            if st.session_state.get("_last_autosaved_hash") != _draft_hash:
+                _auto_key = _make_unique_key(_parsed, st.session_state.triage_records)
+                _auto_shift = detect_shift(_parsed.get("dt_str",""))
+                _auto_recorder = get_default_recorder(_parsed.get("dt_str",""))
+                _auto_no = auto_case_no(st.session_state.triage_records, _parsed.get("dt_str",""))
+                st.session_state.triage_records[_auto_key] = {
+                    "data": _parsed,
+                    "shift": _auto_shift,
+                    "case_no": _auto_no,
+                    "recorder": _auto_recorder,
+                    "origin": _parsed.get("team_name",""),
+                    "history_yn": "無",
+                    "history_dept": "",
+                    "decision": "応需",
+                    "res": {"decision":"応需","out":"（後で入力）"},
+                    "free_note": "",
+                    "is_draft": True,  # 下書きフラグ
+                }
+                save_records(st.session_state.triage_records)
+                st.session_state._last_autosaved_hash = _draft_hash
+                st.session_state._autosaved_key = _auto_key
+            _auto_key = st.session_state.get("_autosaved_key","")
+            st.success(f"✅ 解析成功・自動保存しました（No.{st.session_state.triage_records.get(_auto_key,{}).get('case_no','?')}）\n"
+                       f"詳細を入力して「確定して保存」を押してください。")
+            if _parsed.get("dt_str"):
+                st.info(f"📅 受付日時として抽出: **{_parsed['dt_str']}**（違う場合は下の編集欄で修正してください）")
         else:
             st.warning("⚠️ 自動解析できませんでした。手入力モードをお試しください。")
 
         if st.button("🗑️ クリア", use_container_width=True, key="triage_text_clear"):
             st.session_state.pop("triage_text_input", None)
             st.session_state.pop("_last_text_parsed", None)
+            st.session_state.pop("_last_autosaved_hash", None)
+            st.session_state.pop("_autosaved_key", None)
             st.session_state.triage_raw = None
             st.rerun()
 
@@ -1199,7 +1274,7 @@ if st.session_state.manual_mode:
         if st.button("💾 患者データを保存", use_container_width=True, key="m_save"):
             data = _build_manual_data()
             shift = detect_shift(data["dt_str"])
-            key = data["kanji"] or data["kana"] or "不明"
+            key = _make_unique_key(data, st.session_state.triage_records)
             st.session_state.triage_records[key] = {
                 "data": data, "shift": shift, "case_no": m_case_no,
                 "recorder": m_recorder, "origin": m_team,
@@ -1333,6 +1408,15 @@ if st.session_state.input_mode in ("qr", "text"):
 
 
             st.subheader("台帳情報の入力")
+            # 受付日時を編集可能に（QR内のdt_strは信頼できない場合がある）
+            _cur_dt = data.get("dt_str","")
+            edit_dt = st.text_input("受付日時（例: 9/12（土）4:37）", value=_cur_dt,
+                                    help="QRコードのタイムスタンプは実際の応需時刻と異なる場合があります。必要に応じて修正してください。",
+                                    key="qr_edit_dt")
+            if edit_dt.strip() and edit_dt.strip() != _cur_dt:
+                data["dt_str"] = edit_dt.strip()
+                shift = detect_shift(data["dt_str"])
+
             col1, col2 = st.columns(2)
             with col1:
                 next_no = auto_case_no(st.session_state.triage_records, data["dt_str"])
@@ -1381,12 +1465,18 @@ if st.session_state.input_mode in ("qr", "text"):
             col_save, col_gen = st.columns(2)
             with col_save:
                 if st.button("💾 患者データを保存（転帰は後で入力）", use_container_width=True):
-                    key = data["kanji"] or data["kana"] or "不明"
+                    # 自動保存された下書きがあればそれを更新、なければ新規作成
+                    _draft_key = st.session_state.get("_autosaved_key")
+                    if _draft_key and _draft_key in st.session_state.triage_records:
+                        key = _draft_key
+                    else:
+                        key = _make_unique_key(data, st.session_state.triage_records)
                     st.session_state.triage_records[key] = {
                         "data": data, "shift": shift, "case_no": case_no,
                         "recorder": recorder, "origin": origin,
                         "history_yn": history_yn, "history_dept": history_dept,
                         "decision": decision, "res": res, "free_note": free_note,
+                        "is_draft": False,
                     }
                     save_records(st.session_state.triage_records)
                     st.session_state.last_recorder = recorder
@@ -1394,6 +1484,12 @@ if st.session_state.input_mode in ("qr", "text"):
                     st.session_state.uploader_key += 1
                     st.session_state.uploaded_bytes = None
                     st.session_state.input_mode = None
+                    # 保存後は下書き情報をクリア
+                    st.session_state.pop("triage_text_input", None)
+                    st.session_state.pop("_last_text_parsed", None)
+                    st.session_state.pop("_last_autosaved_hash", None)
+                    st.session_state.pop("_autosaved_key", None)
+                    st.session_state.pop("qr_edit_dt", None)
                     st.success(f"✅ {key}（{shift}）のデータを保存しました。")
                     st.rerun()
             with col_gen:
@@ -1645,11 +1741,14 @@ if records:
         case_no_disp = rec.get("case_no", "?")
         kana = rec.get("data", {}).get("kana", "").replace("　","").replace(" ","")
         display_name = kana if kana else key.replace("　","").replace(" ","")
+        origin_disp = rec.get("origin","")
+        draft_mark = "📝" if rec.get("is_draft") else ""
         ci, ce, cd = st.columns([6, 1, 1])
         with ci:
             st.markdown(
                 f"<div style='font-size:14px;padding:3px 0'>"
-                f"<b>{case_no_disp}.{display_name}</b> {dt_str} 転帰:{outcome_str}</div>",
+                f"{draft_mark}<b>{case_no_disp}.{display_name}</b> {dt_str} "
+                f"🚑{origin_disp} 転帰:{outcome_str}</div>",
                 unsafe_allow_html=True)
         with ce:
             if st.button("編集", key=f"edit_{key}"):
