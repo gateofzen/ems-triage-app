@@ -1752,12 +1752,14 @@ if records:
         kana = rec.get("data", {}).get("kana", "").replace("　","").replace(" ","")
         display_name = kana if kana else key.replace("　","").replace(" ","")
         origin_disp = rec.get("origin","")
+        age_disp = rec.get("data", {}).get("age", "")
+        age_str = f"({age_disp}才)" if age_disp else ""
         draft_mark = "📝" if rec.get("is_draft") else ""
         ci, ce, cd = st.columns([6, 1, 1])
         with ci:
             st.markdown(
                 f"<div style='font-size:14px;padding:3px 0'>"
-                f"{draft_mark}<b>{case_no_disp}.{display_name}</b> {dt_str} "
+                f"{draft_mark}<b>{case_no_disp}.{display_name}</b>{age_str} {dt_str} "
                 f"🚑{origin_disp} 転帰:{outcome_str}</div>",
                 unsafe_allow_html=True)
         with ce:
