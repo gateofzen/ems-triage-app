@@ -127,11 +127,18 @@ def _make_unique_key(data, records):
         n += 1
     return f"{candidate}_{n}"
 
-def auto_case_no(records, dt_str):
-    """同一勤務帯（shift_date + shift_type）内の次のNo.を返す"""
+def auto_case_no(records, dt_str, exclude_key=None, exclude_drafts=False):
+    """同一勤務帯（shift_date + shift_type）内の次のNo.を返す
+    exclude_key: 特定のキーを除外（自動保存された下書き自身を除外）
+    exclude_drafts: is_draft=True の全レコードを除外
+    """
     target_date, target_shift = get_shift_identity(dt_str)
     count = 0
-    for rec in records.values():
+    for k, rec in records.items():
+        if exclude_key and k == exclude_key:
+            continue
+        if exclude_drafts and rec.get("is_draft"):
+            continue
         rec_dt = rec.get("data", {}).get("dt_str", "")
         rd, rs = get_shift_identity(rec_dt)
         if rd == target_date and rs == target_shift:
@@ -1085,7 +1092,7 @@ if st.session_state.input_mode == "text":
                 _auto_key = _make_unique_key(_parsed, st.session_state.triage_records)
                 _auto_shift = detect_shift(_parsed.get("dt_str",""))
                 _auto_recorder = get_default_recorder(_parsed.get("dt_str",""))
-                _auto_no = auto_case_no(st.session_state.triage_records, _parsed.get("dt_str",""))
+                _auto_no = auto_case_no(st.session_state.triage_records, _parsed.get("dt_str",""), exclude_drafts=True)
                 st.session_state.triage_records[_auto_key] = {
                     "data": _parsed,
                     "shift": _auto_shift,
@@ -1154,7 +1161,7 @@ if st.session_state.manual_mode:
         from datetime import timezone as _tz, timedelta as _td
         _jst_now = datetime.now(_tz(_td(hours=9)))
         _tmp_dt = f"{_jst_now.month}/{_jst_now.day}（）{_jst_now.hour:02d}:{_jst_now.minute:02d}"
-        _next = auto_case_no(st.session_state.triage_records, _tmp_dt)
+        _next = auto_case_no(st.session_state.triage_records, _tmp_dt, exclude_drafts=True)
         m_case_no = st.selectbox("No.", list(range(1,16)), index=_next-1, key="m_case_no_inp")
         recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
         _def_rec = get_default_recorder()
@@ -1419,7 +1426,10 @@ if st.session_state.input_mode in ("qr", "text"):
 
             col1, col2 = st.columns(2)
             with col1:
-                next_no = auto_case_no(st.session_state.triage_records, data["dt_str"])
+                # 自動保存された下書き自身を除外して数える
+                _current_draft_key = st.session_state.get("_autosaved_key")
+                next_no = auto_case_no(st.session_state.triage_records, data["dt_str"],
+                                       exclude_key=_current_draft_key)
                 case_no = st.selectbox("No.", list(range(1, 16)), index=next_no-1)
                 recorders = ["前川", "中嶋", "森木", "小舘", "遠藤", "提嶋"]
                 _def_rec_qr = get_default_recorder(data["dt_str"])
