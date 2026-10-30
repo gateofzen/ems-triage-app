@@ -938,6 +938,35 @@ if "manual_mode" not in st.session_state:
 if "input_mode" not in st.session_state:
     st.session_state.input_mode = None  # None, "qr", "text", "manual"
 
+# QR貼り付けボタンを他のStreamlitボタンと同じ外観に統一するCSS
+st.markdown("""<style>
+/* paste_image_buttonを標準ボタン風に */
+div[data-testid="stHorizontalBlock"] button[kind="pasteButton"],
+.stPasteButton button,
+button[title="Paste from clipboard"] {
+    width: 100% !important;
+    min-height: 38px !important;
+    padding: 0.25rem 0.75rem !important;
+    border: 1px solid rgba(250,250,250,0.2) !important;
+    border-radius: 0.5rem !important;
+    background-color: transparent !important;
+    color: inherit !important;
+    font-weight: 400 !important;
+    font-size: 1rem !important;
+    line-height: 1.6 !important;
+    box-shadow: none !important;
+}
+div[data-testid="stHorizontalBlock"] button[kind="pasteButton"]:hover,
+.stPasteButton button:hover {
+    border-color: #ff4b4b !important;
+    color: #ff4b4b !important;
+}
+/* paste_image_buttonのラッパー */
+div.stPasteButton, div[data-testid="stPasteButton"] {
+    width: 100% !important;
+}
+</style>""", unsafe_allow_html=True)
+
 col_qr, col_text, col_manual = st.columns(3)
 with col_qr:
     # QRコード：クリップボードから貼り付けボタンを直接表示
@@ -946,9 +975,6 @@ with col_qr:
         _qr_paste = pbutton(
             label="📷 QRコードを貼り付け",
             key="qr_paste_direct",
-            background_color="#262730",
-            hover_background_color="#3d3f4a",
-            text_color="#ffffff",
         )
         if _qr_paste.image_data is not None:
             _buf = io.BytesIO()
