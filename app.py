@@ -955,11 +955,22 @@ _BTN_ACTIVE_TEXT = "#ffffff"
 
 # カスタムCSSでiframe内ボタンのサイズと他ボタンの外観を一致させる
 st.markdown(f"""<style>
-/* paste_image_buttonのiframeコンテナ */
-div[data-testid="stHorizontalBlock"] iframe {{
+/* paste_image_buttonのiframeコンテナを全幅に強制 */
+div[data-testid="stHorizontalBlock"] iframe,
+div[data-testid="stHorizontalBlock"] div[class*="element-container"]:has(iframe) iframe,
+iframe[title*="paste"],
+iframe[src*="streamlit_paste_button"] {{
     height: 46px !important;
     width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
     border: none !important;
+    display: block !important;
+}}
+/* iframeを含むコンテナも全幅に */
+div[data-testid="stHorizontalBlock"] div[class*="element-container"]:has(iframe),
+div[data-testid="stHorizontalBlock"] div.stCustomComponentV1 {{
+    width: 100% !important;
 }}
 /* 他2ボタン（テキスト貼り付け・手入力）をiframeボタンに揃える */
 div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {{
@@ -988,7 +999,21 @@ div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="
     color: {_BTN_ACTIVE_TEXT} !important;
     border-color: {_BTN_ACTIVE_BG} !important;
 }}
-</style>""", unsafe_allow_html=True)
+</style>
+<script>
+// iframeの幅を強制的に100%にする（Streamlitがインラインstyleで狭める場合の対応）
+setTimeout(() => {{
+    const iframes = window.parent.document.querySelectorAll('iframe');
+    iframes.forEach(f => {{
+        if (f.title && (f.title.includes('paste') || f.src && f.src.includes('paste'))) {{
+            f.style.width = '100%';
+            f.style.minWidth = '100%';
+            f.setAttribute('width', '100%');
+            if (f.parentElement) f.parentElement.style.width = '100%';
+        }}
+    }});
+}}, 500);
+</script>""", unsafe_allow_html=True)
 
 col_qr, col_text, col_manual = st.columns(3)
 with col_qr:
