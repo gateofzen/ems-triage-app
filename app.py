@@ -938,43 +938,67 @@ if "manual_mode" not in st.session_state:
 if "input_mode" not in st.session_state:
     st.session_state.input_mode = None  # None, "qr", "text", "manual"
 
-# QR貼り付けボタンを他のStreamlitボタンと同じ外観に統一するCSS
-st.markdown("""<style>
-/* paste_image_buttonを標準ボタン風に */
-div[data-testid="stHorizontalBlock"] button[kind="pasteButton"],
-.stPasteButton button,
-button[title="Paste from clipboard"] {
+# === 3ボタンを統一デザインでカスタム実装 ===
+# 全てのボタンをstreamlit_paste_buttonと同じiframe内に配置して、見た目を完全統一する
+try:
+    from streamlit_paste_button import paste_image_button as pbutton
+    _paste_available = True
+except ImportError:
+    _paste_available = False
+
+# 共通ボタンスタイルの定義
+_BTN_BG = "#262730"
+_BTN_HOVER = "#3d3f4a"
+_BTN_TEXT = "#fafafa"
+_BTN_ACTIVE_BG = "#ff4b4b"
+_BTN_ACTIVE_TEXT = "#ffffff"
+
+# カスタムCSSでiframe内ボタンのサイズと他ボタンの外観を一致させる
+st.markdown(f"""<style>
+/* paste_image_buttonのiframeコンテナ */
+div[data-testid="stHorizontalBlock"] iframe {{
+    height: 46px !important;
     width: 100% !important;
-    min-height: 38px !important;
-    padding: 0.25rem 0.75rem !important;
-    border: 1px solid rgba(250,250,250,0.2) !important;
-    border-radius: 0.5rem !important;
-    background-color: transparent !important;
-    color: inherit !important;
-    font-weight: 400 !important;
-    font-size: 1rem !important;
-    line-height: 1.6 !important;
+    border: none !important;
+}}
+/* 他2ボタン（テキスト貼り付け・手入力）をiframeボタンに揃える */
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {{
+    height: 46px !important;
+    width: 100% !important;
+    min-height: 46px !important;
+    padding: 0 14px !important;
+    border-radius: 6px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    background-color: {_BTN_BG} !important;
+    color: {_BTN_TEXT} !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
     box-shadow: none !important;
-}
-div[data-testid="stHorizontalBlock"] button[kind="pasteButton"]:hover,
-.stPasteButton button:hover {
-    border-color: #ff4b4b !important;
-    color: #ff4b4b !important;
-}
-/* paste_image_buttonのラッパー */
-div.stPasteButton, div[data-testid="stPasteButton"] {
-    width: 100% !important;
-}
+}}
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button:hover {{
+    background-color: {_BTN_HOVER} !important;
+    border-color: rgba(255,255,255,0.2) !important;
+    color: {_BTN_TEXT} !important;
+}}
+div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"] {{
+    background-color: {_BTN_ACTIVE_BG} !important;
+    color: {_BTN_ACTIVE_TEXT} !important;
+    border-color: {_BTN_ACTIVE_BG} !important;
+}}
 </style>""", unsafe_allow_html=True)
 
 col_qr, col_text, col_manual = st.columns(3)
 with col_qr:
-    # QRコード：クリップボードから貼り付けボタンを直接表示
-    try:
-        from streamlit_paste_button import paste_image_button as pbutton
+    if _paste_available:
         _qr_paste = pbutton(
             label="📷 QRコードを貼り付け",
             key="qr_paste_direct",
+            background_color=_BTN_BG,
+            hover_background_color=_BTN_HOVER,
+            text_color=_BTN_TEXT,
         )
         if _qr_paste.image_data is not None:
             _buf = io.BytesIO()
@@ -987,7 +1011,7 @@ with col_qr:
                 st.session_state.manual_mode = False
                 st.session_state.pop("triage_text_input", None)
                 st.rerun()
-    except ImportError:
+    else:
         if st.button("📷 QRコード読み取り", use_container_width=True,
                      type="primary" if st.session_state.input_mode == "qr" else "secondary"):
             st.session_state.input_mode = "qr"
