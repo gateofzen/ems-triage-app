@@ -1320,61 +1320,29 @@ if st.session_state.manual_mode:
 # ===== QRコードモード =====
 if st.session_state.input_mode in ("qr", "text"):
 
-    _qc1, _qc2 = st.columns(2)
-    with _qc1:
-        try:
-            from streamlit_paste_button import paste_image_button as pbutton
-            paste_result = pbutton(
-                label="📋 クリップボードから貼り付け",
-                key="paste_btn",
-                background_color="#262730",
-                hover_background_color="#3d3f4a",
-                text_color="#ffffff",
-            )
-            if paste_result.image_data is not None:
-                _buf = io.BytesIO()
-                paste_result.image_data.save(_buf, format="PNG")
-                _bytes = _buf.getvalue()
-                if _bytes != st.session_state.get("uploaded_bytes"):
-                    st.session_state.uploaded_bytes = _bytes
-                    st.session_state.triage_raw = None
-                    st.rerun()
-        except ImportError:
-            st.info("ペースト機能不可")
-    with _qc2:
-        # st.file_uploaderをボタン風にCSSでスタイリング（カメラ対応・データ取得可）
-        st.markdown("""<style>
-        /* ファイルアップローダーをボタン風に */
-        div[data-testid="stFileUploader"] > label {display:none}
-        div[data-testid="stFileUploader"] section {
-            border:none !important; padding:0 !important; background:transparent !important;
-        }
-        div[data-testid="stFileUploaderDropzone"] {
-            padding:0 !important; border-radius:4px !important; min-height:0 !important;
-            border:1px solid rgba(250,250,250,0.2) !important; background:#262730 !important;
-        }
-        div[data-testid="stFileUploaderDropzone"]:hover {background:#3d3f4a !important;}
-        div[data-testid="stFileUploaderDropzoneInstructions"] {display:none !important;}
-        div[data-testid="stFileUploaderDropzone"] > button {
-            width:100% !important; height:38px !important; background:transparent !important;
-            color:white !important; border:none !important;
-            font-size:0.875rem !important; cursor:pointer !important;
-        }
-        div[data-testid="stFileUploaderDropzone"] > button > span {color:white !important;}
-        div[data-testid="stFileUploaderDropzone"] > button svg {fill:white !important;}
-        div[data-testid="stFileUploader"] section > div:last-child {display:none !important;}
-        </style>""", unsafe_allow_html=True)
-        uploaded = st.file_uploader(
-            "📁 画像をアップロード",
-            type=["png","jpg","jpeg"],
-            label_visibility="collapsed",
-            key=f"uploader_{st.session_state.uploader_key}"
+    # QRモード/テキストモード: クリップボード貼り付けのみ（ファイルアップロードは廃止）
+    try:
+        from streamlit_paste_button import paste_image_button as pbutton
+        paste_result = pbutton(
+            label="📋 クリップボードから貼り付け",
+            key="paste_btn",
+            background_color="#262730",
+            hover_background_color="#3d3f4a",
+            text_color="#ffffff",
         )
+        if paste_result.image_data is not None:
+            _buf = io.BytesIO()
+            paste_result.image_data.save(_buf, format="PNG")
+            _bytes = _buf.getvalue()
+            if _bytes != st.session_state.get("uploaded_bytes"):
+                st.session_state.uploaded_bytes = _bytes
+                st.session_state.triage_raw = None
+                st.rerun()
+    except ImportError:
+        st.info("ペースト機能不可")
 
-    # アップロードされたファイルのバイトをセッションに保持
-    if uploaded is not None:
-        st.session_state.uploaded_bytes = uploaded.read()
-        uploaded.seek(0)
+    # ファイルアップロードは廃止（セキュリティ理由）
+    uploaded = None
 
     # セッションに保存済みのファイルを使う
     has_file = uploaded is not None or st.session_state.get("uploaded_bytes") is not None
