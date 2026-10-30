@@ -940,12 +940,34 @@ if "input_mode" not in st.session_state:
 
 col_qr, col_text, col_manual = st.columns(3)
 with col_qr:
-    if st.button("📷 QRコード読み取り", use_container_width=True,
-                 type="primary" if st.session_state.input_mode == "qr" else "secondary"):
-        st.session_state.input_mode = "qr"
-        st.session_state.manual_mode = False
-        st.session_state.pop("triage_text_input", None)
-        st.rerun()
+    # QRコード：クリップボードから貼り付けボタンを直接表示
+    try:
+        from streamlit_paste_button import paste_image_button as pbutton
+        _qr_paste = pbutton(
+            label="📷 QRコードを貼り付け",
+            key="qr_paste_direct",
+            background_color="#262730",
+            hover_background_color="#3d3f4a",
+            text_color="#ffffff",
+        )
+        if _qr_paste.image_data is not None:
+            _buf = io.BytesIO()
+            _qr_paste.image_data.save(_buf, format="PNG")
+            _bytes = _buf.getvalue()
+            if _bytes != st.session_state.get("uploaded_bytes"):
+                st.session_state.uploaded_bytes = _bytes
+                st.session_state.triage_raw = None
+                st.session_state.input_mode = "qr"
+                st.session_state.manual_mode = False
+                st.session_state.pop("triage_text_input", None)
+                st.rerun()
+    except ImportError:
+        if st.button("📷 QRコード読み取り", use_container_width=True,
+                     type="primary" if st.session_state.input_mode == "qr" else "secondary"):
+            st.session_state.input_mode = "qr"
+            st.session_state.manual_mode = False
+            st.session_state.pop("triage_text_input", None)
+            st.rerun()
 with col_text:
     if st.button("📋 テキスト貼り付け", use_container_width=True,
                  type="primary" if st.session_state.input_mode == "text" else "secondary"):
@@ -1319,29 +1341,8 @@ if st.session_state.manual_mode:
 
 # ===== QRコードモード =====
 if st.session_state.input_mode in ("qr", "text"):
-
-    # QRモード/テキストモード: クリップボード貼り付けのみ（ファイルアップロードは廃止）
-    try:
-        from streamlit_paste_button import paste_image_button as pbutton
-        paste_result = pbutton(
-            label="📋 クリップボードから貼り付け",
-            key="paste_btn",
-            background_color="#262730",
-            hover_background_color="#3d3f4a",
-            text_color="#ffffff",
-        )
-        if paste_result.image_data is not None:
-            _buf = io.BytesIO()
-            paste_result.image_data.save(_buf, format="PNG")
-            _bytes = _buf.getvalue()
-            if _bytes != st.session_state.get("uploaded_bytes"):
-                st.session_state.uploaded_bytes = _bytes
-                st.session_state.triage_raw = None
-                st.rerun()
-    except ImportError:
-        st.info("ペースト機能不可")
-
     # ファイルアップロードは廃止（セキュリティ理由）
+    # QRコードは上部の「📷 QRコードを貼り付け」ボタンから直接貼り付け済み
     uploaded = None
 
     # セッションに保存済みのファイルを使う
