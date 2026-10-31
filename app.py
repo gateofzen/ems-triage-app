@@ -681,7 +681,13 @@ def safe_triage_fname(data, case_no):
     return f"triage_{case_no:02d}_{dt}_{age}{sex}.jpg"
 
 def render_triage(data, recorder, origin, shift, history_yn, history_dept, decision, res, case_no, free_note=""):
-    base = Image.open("template.png").convert("RGB")
+    import os as _os
+    _template_candidates = [
+        _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "template.png"),
+        "template.png",
+    ]
+    _template_path = next((p for p in _template_candidates if _os.path.exists(p)), _template_candidates[0])
+    base = Image.open(_template_path).convert("RGB")
     d = ImageDraw.Draw(base)
 
     f18 = get_font(18)
@@ -938,111 +944,16 @@ if "manual_mode" not in st.session_state:
 if "input_mode" not in st.session_state:
     st.session_state.input_mode = None  # None, "qr", "text", "manual"
 
-# === 3ボタンを統一デザインでカスタム実装 ===
-# 全てのボタンをstreamlit_paste_buttonと同じiframe内に配置して、見た目を完全統一する
-try:
-    from streamlit_paste_button import paste_image_button as pbutton
-    _paste_available = True
-except ImportError:
-    _paste_available = False
-
-# 共通ボタンスタイルの定義
-_BTN_BG = "#262730"
-_BTN_HOVER = "#3d3f4a"
-_BTN_TEXT = "#fafafa"
-_BTN_ACTIVE_BG = "#ff4b4b"
-_BTN_ACTIVE_TEXT = "#ffffff"
-
-# カスタムCSSでiframe内ボタンのサイズと他ボタンの外観を一致させる
-st.markdown(f"""<style>
-/* paste_image_buttonのiframeコンテナを全幅に強制 */
-div[data-testid="stHorizontalBlock"] iframe,
-div[data-testid="stHorizontalBlock"] div[class*="element-container"]:has(iframe) iframe,
-iframe[title*="paste"],
-iframe[src*="streamlit_paste_button"] {{
-    height: 46px !important;
-    width: 100% !important;
-    min-width: 100% !important;
-    max-width: 100% !important;
-    border: none !important;
-    display: block !important;
-}}
-/* iframeを含むコンテナも全幅に */
-div[data-testid="stHorizontalBlock"] div[class*="element-container"]:has(iframe),
-div[data-testid="stHorizontalBlock"] div.stCustomComponentV1 {{
-    width: 100% !important;
-}}
-/* 他2ボタン（テキスト貼り付け・手入力）をiframeボタンに揃える */
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button {{
-    height: 46px !important;
-    width: 100% !important;
-    min-height: 46px !important;
-    padding: 0 14px !important;
-    border-radius: 6px !important;
-    font-size: 14px !important;
-    font-weight: 500 !important;
-    background-color: {_BTN_BG} !important;
-    color: {_BTN_TEXT} !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    box-shadow: none !important;
-}}
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button:hover {{
-    background-color: {_BTN_HOVER} !important;
-    border-color: rgba(255,255,255,0.2) !important;
-    color: {_BTN_TEXT} !important;
-}}
-div[data-testid="stHorizontalBlock"] div[data-testid="stButton"] > button[kind="primary"] {{
-    background-color: {_BTN_ACTIVE_BG} !important;
-    color: {_BTN_ACTIVE_TEXT} !important;
-    border-color: {_BTN_ACTIVE_BG} !important;
-}}
-</style>
-<script>
-// iframeの幅を強制的に100%にする（Streamlitがインラインstyleで狭める場合の対応）
-setTimeout(() => {{
-    const iframes = window.parent.document.querySelectorAll('iframe');
-    iframes.forEach(f => {{
-        if (f.title && (f.title.includes('paste') || f.src && f.src.includes('paste'))) {{
-            f.style.width = '100%';
-            f.style.minWidth = '100%';
-            f.setAttribute('width', '100%');
-            if (f.parentElement) f.parentElement.style.width = '100%';
-        }}
-    }});
-}}, 500);
-</script>""", unsafe_allow_html=True)
-
+# === 3ボタンを標準のst.buttonで統一 ===
+# QRコードボタンを押すと、クリップボードから貼り付けるエリアが現れる方式
 col_qr, col_text, col_manual = st.columns(3)
 with col_qr:
-    if _paste_available:
-        _qr_paste = pbutton(
-            label="📷 QRコードを貼り付け",
-            key="qr_paste_direct",
-            background_color=_BTN_BG,
-            hover_background_color=_BTN_HOVER,
-            text_color=_BTN_TEXT,
-        )
-        if _qr_paste.image_data is not None:
-            _buf = io.BytesIO()
-            _qr_paste.image_data.save(_buf, format="PNG")
-            _bytes = _buf.getvalue()
-            if _bytes != st.session_state.get("uploaded_bytes"):
-                st.session_state.uploaded_bytes = _bytes
-                st.session_state.triage_raw = None
-                st.session_state.input_mode = "qr"
-                st.session_state.manual_mode = False
-                st.session_state.pop("triage_text_input", None)
-                st.rerun()
-    else:
-        if st.button("📷 QRコード読み取り", use_container_width=True,
-                     type="primary" if st.session_state.input_mode == "qr" else "secondary"):
-            st.session_state.input_mode = "qr"
-            st.session_state.manual_mode = False
-            st.session_state.pop("triage_text_input", None)
-            st.rerun()
+    if st.button("📷 QRコード読み取り", use_container_width=True,
+                 type="primary" if st.session_state.input_mode == "qr" else "secondary"):
+        st.session_state.input_mode = "qr"
+        st.session_state.manual_mode = False
+        st.session_state.pop("triage_text_input", None)
+        st.rerun()
 with col_text:
     if st.button("📋 テキスト貼り付け", use_container_width=True,
                  type="primary" if st.session_state.input_mode == "text" else "secondary"):
@@ -1059,6 +970,28 @@ with col_manual:
         st.session_state.uploaded_bytes = None
         st.session_state.pop("triage_text_input", None)
         st.rerun()
+
+# QRモード選択時にクリップボード貼り付けボタンを表示
+if st.session_state.input_mode == "qr":
+    try:
+        from streamlit_paste_button import paste_image_button as pbutton
+        _qr_paste = pbutton(
+            label="📋 クリップボードから貼り付け",
+            key="qr_paste_in_mode",
+            background_color="#262730",
+            hover_background_color="#3d3f4a",
+            text_color="#ffffff",
+        )
+        if _qr_paste.image_data is not None:
+            _buf = io.BytesIO()
+            _qr_paste.image_data.save(_buf, format="PNG")
+            _bytes = _buf.getvalue()
+            if _bytes != st.session_state.get("uploaded_bytes"):
+                st.session_state.uploaded_bytes = _bytes
+                st.session_state.triage_raw = None
+                st.rerun()
+    except ImportError:
+        st.info("ペースト機能不可")
 
 # ===== テキスト貼り付けモード =====
 if st.session_state.input_mode == "text":
